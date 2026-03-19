@@ -131,7 +131,7 @@ def register_routes(app):
     
     @app.get('/score')
     def get_score_name():
-        return {'Similarity Score': score_name}
+        return jsonify({'Similarity Score': score_name})
     
 
     # @app.route("/api/products")
