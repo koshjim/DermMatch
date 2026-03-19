@@ -16,18 +16,19 @@ USE_LLM = False
 
 def json_search(query):
     if not query or not query.strip():
-        query = "Kardashian"
-    results = db.session.query(Product, Review).join(
-        Review, Product.id == Review.id
-    ).filter(
-        Product.name.ilike(f'%{query}%')
+        return []
+    results = db.session.query(Product).filter(
+        Product.product_name.ilike(f'%{query}%')
     ).all()
     matches = []
-    for product, review in results:
+    for product in results:
         matches.append({
-            'name': product.name,
-            'brand': product.brand,
+            'id': product.id,
+            'name': product.product_name,
+            'brand': product.brand_name,
+            'price': product.price,
             'rating': product.rating,
+            'category': product.category,
             'ingredients': product.ingredients,
             'description': product.description,
         })
@@ -49,7 +50,7 @@ def register_routes(app):
     def config():
         return jsonify({"use_llm": USE_LLM})
 
-    @app.route("/api/product")
+    @app.route("/api/products")
     def products():
         text = request.args.get("name", "")
         return jsonify(json_search(text))
