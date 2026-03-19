@@ -32,6 +32,8 @@ def json_search(query):
     return matches
 
 
+
+
 def register_routes(app):
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')

@@ -1,5 +1,8 @@
-export interface Episode {
-  title: string;
-  descr: string;
-  imdb_rating: number;
+export interface Product {
+  id: number;
+  name: string;
+  brand: string;
+  price: number;
+  rating: number;
+  category: string;
 }
