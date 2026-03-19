@@ -51,7 +51,7 @@ def init_db():
         db.create_all()
 
         if Product.query.count() == 0:
-            file_path = os.path.join(current_directory, 'products.csv')
+            file_path = os.path.join(current_directory, 'final_merged_dataset.csv')
 
             with open(file_path, newline='', encoding='utf-8') as csvfile:
                 reader = csv.DictReader(csvfile)
