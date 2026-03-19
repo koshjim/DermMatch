@@ -170,6 +170,7 @@ def register_routes(app):
     #     text = request.args.get("name", "")
     #     return jsonify(json_search(text))
 
+    # i dont think we need this!
     @app.route("/api/products")
     def get_products():
         products = Product.query.limit(15).all()
