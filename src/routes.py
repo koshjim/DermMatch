@@ -5,6 +5,7 @@ To enable AI chat, set USE_LLM = True below. See llm_routes.py for AI code.
 """
 import json
 import os
+import csv
 import pandas as pd
 import numpy as np
 from flask import send_from_directory, request, jsonify
@@ -41,11 +42,28 @@ def json_search(query):
 
 score_name = []
 
+def get_chemical_frequency():
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(current_directory, 'makeupchemicalscleaned.csv')
+    chemical_counts = {}
+
+    if os.path.exists(file_path):
+        with open(file_path, newline='', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                name = row.get('ChemicalName')
+                if name:
+                    chemical_counts[name] = chemical_counts.get(name, 0) + 1
+    
+    return list(chemical_counts.items())
+
 def ranked_product_search(query):
     if not query or not query.strip():
         return []
 
     products = Product.query.all()
+    chem_freq = get_chemical_frequency()
+    max_chem_freq = max([freq for name, freq in chem_freq]) if chem_freq else 1
 
     # ---- Build text corpus ----
     corpus = []
@@ -81,9 +99,24 @@ def ranked_product_search(query):
         rating_boost = (p.rating or 0) / 5.0
         loves_boost = min((p.loves_count or 0) / 10000, 1)
 
-        final_score = base_score + 0.3 * rating_boost + 0.3 * loves_boost
+        # ---- Safety Score ----
+        safety_score = 100.0
+        if p.ingredients:
+            for chem_name, freq in chem_freq:
+                if chem_name in p.ingredients:
+                    deduction = (freq / max_chem_freq) * 10
+                    safety_score -= deduction
+        
+        p.safety_score = max(0.0, safety_score)
+
+        final_score = base_score + 0.3 * rating_boost + 0.3 * loves_boost + 0.5 * (p.safety_score / 100.0)
 
         results.append((final_score, p))
+
+    if results:
+        max_score = max(r[0] for r in results)
+        if max_score > 0:
+            results = [(score / max_score, p) for score, p in results]
 
     # ---- Sort by score ----
     results.sort(key=lambda x: x[0], reverse=True)
@@ -99,6 +132,7 @@ def ranked_product_search(query):
         "rating": p.rating,
         "description": p.description,
         "ingredients": p.ingredients,
+        "safety_score": getattr(p, "safety_score", 100.0),
         "score": score
     } for score, p in results[:15]]
 

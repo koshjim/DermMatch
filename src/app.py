@@ -58,6 +58,19 @@ def to_int(val):
     except:
         return None
 
+def get_chemical_frequency():
+    file_path = os.path.join(current_directory, 'makeupchemicalscleaned.csv')
+    chemical_counts = {}
+
+    if os.path.exists(file_path):
+        with open(file_path, newline='', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                name = row.get('ChemicalName')
+                if name:
+                    chemical_counts[name] = chemical_counts.get(name, 0) + 1
+    
+    return list(chemical_counts.items())
 
 def init_db():
     with app.app_context():
@@ -137,7 +150,8 @@ def init_db():
 
                         currency=row.get('currency'),
                         label=row.get('label'),
-                        score=0.0
+                        score=0.0,
+                        safety_score=100.0
                     )
 
                     db.session.add(product)

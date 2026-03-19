@@ -8,4 +8,5 @@ export interface Product {
   ingredients: string;
   description: string;
   score: number;
+  safety_score: number;
 }
