@@ -104,6 +104,7 @@ def ranked_product_search(query):
         if p.ingredients:
             for chem_name, freq in chem_freq:
                 if chem_name in p.ingredients:
+                    p.flagged_ingredients.append(chem_name)
                     deduction = (freq / max_chem_freq) * 10
                     safety_score -= deduction
         
@@ -133,7 +134,8 @@ def ranked_product_search(query):
         "description": p.description,
         "ingredients": p.ingredients,
         "safety_score": getattr(p, "safety_score", 100.0),
-        "score": score
+        "score": score,
+        "flagged_ingredients": p.flagged_ingredients
     } for score, p in results[:15]]
 
 

@@ -9,4 +9,5 @@ export interface Product {
   description: string;
   score: number;
   safety_score: number;
+  flagged_ingredients: string[];
 }

@@ -51,8 +51,13 @@ function App(): JSX.Element {
             <p className="product-price">Price: ${product.price}</p>
             <p className="product-category">Category: {product.category}</p>
             <p className="product-description">{product.description}</p>
-            <p className="product-ingredients">Ingredients: {product.ingredients}</p>
             <p className="match-score">Match Score: {product.score}</p>
+            <p className="safety-score">Safety Score: {product.safety_score}</p>
+            {product.flagged_ingredients.length > 0 && (
+              <p className="flagged-ingredients">
+                Flagged Ingredients: {product.flagged_ingredients.join(', ')}
+              </p>
+            )}
           </div>
         ))}
       </div>
