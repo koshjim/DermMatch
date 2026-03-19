@@ -49,7 +49,7 @@ def register_routes(app):
     def config():
         return jsonify({"use_llm": USE_LLM})
 
-    @app.route("/api/products")
+    @app.route("/api/product")
     def products():
         text = request.args.get("name", "")
         return jsonify(json_search(text))
