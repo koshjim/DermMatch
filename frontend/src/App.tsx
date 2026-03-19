@@ -9,15 +9,11 @@ function App(): JSX.Element {
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [products, setProducts] = useState<Product[]>([])
 
-  // useEffect(() => {
-  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
-  // }, [])
-
   useEffect(() => {
-  fetch("/api/products")
-    .then(res => res.json())
-    .then(data => setProducts(data));
-}, []);
+    fetch('/api/config')
+      .then(r => r.json())
+      .then(data => setUseLlm(data.use_llm))
+  }, [])
 
   const handleSearch = async (value: string): Promise<void> => {
     setSearchTerm(value)
@@ -33,7 +29,7 @@ function App(): JSX.Element {
     <div className={`full-body-container ${useLlm ? 'llm-mode' : ''}`}>
       {/* Search bar (always shown) */}
       <div className="top-text">
-        <h1> SmartSkin!</h1>
+        <h1> DermMatch Wahoo!</h1>
         <div className="input-box" onClick={() => document.getElementById('search-input')?.focus()}>
           <img src={SearchIcon} alt="search" />
           <input
@@ -48,7 +44,7 @@ function App(): JSX.Element {
       {/* Search results (always shown) */}
       <div id="answer-box">
         {products.map((product, index) => (
-          <div key={index} className="episode-item">
+          <div key={index} className="product-item">
             <h3 className="product-name">{product.name}</h3>
             <p className="product-brand">{product.brand}</p>
             <p className="product-rating">Rating: {product.rating}</p>
