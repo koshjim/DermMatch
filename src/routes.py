@@ -101,6 +101,7 @@ def ranked_product_search(query):
 
         # ---- Safety Score ----
         safety_score = 100.0
+        p.flagged_ingredients = []
         if p.ingredients:
             for chem_name, freq in chem_freq:
                 if chem_name in p.ingredients:
