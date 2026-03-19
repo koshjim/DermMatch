@@ -7,6 +7,8 @@ import json
 import os
 from flask import send_from_directory, request, jsonify
 from models import db, Product, Review
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # ── AI toggle ────────────────────────────────────────────────────────────────
 USE_LLM = False
@@ -36,6 +38,63 @@ def json_search(query):
 
 
 
+def ranked_product_search(query):
+    if not query or not query.strip():
+        return []
+
+    products = Product.query.all()
+
+    # ---- Build text corpus ----
+    corpus = []
+    for p in products:
+        text = f"{p.product_name or ''} {p.brand_name or ''} {p.primary_category or ''} {p.secondary_category or ''} {p.category or ''}"
+        corpus.append(text.lower())
+
+    # ---- TF-IDF ----
+    vectorizer = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = vectorizer.fit_transform(corpus)
+
+    query_vec = vectorizer.transform([query.lower()])
+
+    # ---- Cosine similarity ----
+    similarities = cosine_similarity(query_vec, tfidf_matrix).flatten()
+
+    results = []
+
+    for i, p in enumerate(products):
+        base_score = similarities[i]
+
+        # ---- Boost 1: name + brand match (strong weight) ----
+        name_brand_text = f"{p.product_name} {p.brand_name}".lower()
+        if query.lower() in name_brand_text:
+            base_score *= 2.0
+
+        # ---- Boost 2: category match ----
+        category_text = f"{p.primary_category} {p.secondary_category} {p.category}".lower()
+        if query.lower() in category_text:
+            base_score *= 1.5
+
+        # ---- Boost 3: rating + loves ----
+        rating_boost = (p.rating or 0) / 5.0
+        loves_boost = min((p.loves_count or 0) / 10000, 1)
+
+        final_score = base_score + 0.3 * rating_boost + 0.3 * loves_boost
+
+        results.append((final_score, p))
+
+    # ---- Sort by score ----
+    results.sort(key=lambda x: x[0], reverse=True)
+
+    # ---- Return top results ----
+    return [{
+        "id": p.id,
+        "name": p.product_name,
+        "brand": p.brand_name,
+        "price": p.price,
+        "rating": p.rating
+    } for score, p in results[:20]]
+
+
 
 def register_routes(app):
     @app.route('/', defaults={'path': ''})
@@ -49,11 +108,29 @@ def register_routes(app):
     @app.route("/api/config")
     def config():
         return jsonify({"use_llm": USE_LLM})
+    
+    @app.route("/api/products/search")
+    def search_products():
+        q = request.args.get("q", "")
+        return jsonify(ranked_product_search(q))
+    
+
+    # @app.route("/api/products")
+    # def products():
+    #     text = request.args.get("name", "")
+    #     return jsonify(json_search(text))
 
     @app.route("/api/products")
-    def products():
-        text = request.args.get("name", "")
-        return jsonify(json_search(text))
+    def get_products():
+        products = Product.query.limit(20).all()
+
+        return jsonify([{
+            "id": p.id,
+            "name": p.product_name,
+            "brand": p.brand_name,
+            "price": p.price,
+            "rating": p.rating
+        } for p in products])
 
     if USE_LLM:
         from llm_routes import register_chat_route

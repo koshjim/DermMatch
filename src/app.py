@@ -4,6 +4,7 @@ import csv
 from dotenv import load_dotenv
 from flask import Flask
 
+
 load_dotenv()
 from flask_cors import CORS
 from models import db, Product, Review
@@ -107,6 +108,7 @@ def init_db():
 
             db.session.commit()
             print("Database initialized with products CSV data")
+
 
 init_db()
 

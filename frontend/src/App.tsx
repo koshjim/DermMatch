@@ -18,7 +18,7 @@ function App(): JSX.Element {
   const handleSearch = async (value: string): Promise<void> => {
     setSearchTerm(value)
     if (value.trim() === '') { setProducts([]); return }
-    const response = await fetch(`/api/products?name=${encodeURIComponent(value)}`)
+    const response = await fetch(`/api/products/search?q=${encodeURIComponent(value)}`)
     const data: Product[] = await response.json()
     setProducts(data)
   }
