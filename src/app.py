@@ -31,7 +31,6 @@ register_routes(app)
 # Function to initialize database, change this to your own database initialization logic
 def init_db():
     with app.app_context():
-        # Create all tables
         db.create_all()
         
         # Initialize database with data from init.json if empty
