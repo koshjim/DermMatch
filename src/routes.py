@@ -39,7 +39,10 @@ def json_search(query):
         })
     return matches
 
-merged_df = pd.read_csv('final_merged_dataset.csv')
+# Use absolute path to find the CSV file
+current_directory = os.path.dirname(os.path.abspath(__file__))
+csv_path = os.path.join(current_directory, 'final_merged_dataset.csv')
+merged_df = pd.read_csv(csv_path)
 score = np.zeros(merged_df.shape[0])
 score_name = []
 
