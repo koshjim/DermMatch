@@ -57,7 +57,7 @@ def get_chemical_frequency():
     
     return list(chemical_counts.items())
 
-def ranked_product_search(query):
+def ranked_product_search(query, category='', min_price=None, max_price=None, min_rating=None, sort_by='relevance'):
     if not query or not query.strip():
         return []
 
@@ -121,8 +121,28 @@ def ranked_product_search(query):
         if max_score > 0:
             results = [(score / max_score, p) for score, p in results]
 
-    # ---- Sort by score ----
-    results.sort(key=lambda x: x[0], reverse=True)
+    # ---- Apply filters ----
+    if category:
+        results = [(s, p) for s, p in results if (p.primary_category or '').lower() == category.lower()]
+    if min_price is not None:
+        results = [(s, p) for s, p in results if p.price is not None and p.price >= min_price]
+    if max_price is not None:
+        results = [(s, p) for s, p in results if p.price is not None and p.price <= max_price]
+    if min_rating is not None:
+        results = [(s, p) for s, p in results if p.rating is not None and p.rating >= min_rating]
+
+    # ---- Sort ----
+    if sort_by == 'price_asc':
+        results.sort(key=lambda x: x[1].price or 0)
+    elif sort_by == 'price_desc':
+        results.sort(key=lambda x: x[1].price or 0, reverse=True)
+    elif sort_by == 'rating':
+        results.sort(key=lambda x: x[1].rating or 0, reverse=True)
+    elif sort_by == 'safety':
+        results.sort(key=lambda x: getattr(x[1], 'safety_score', 100.0), reverse=True)
+    else:
+        results.sort(key=lambda x: x[0], reverse=True)
+
     score_name = [(score, p.product_name) for score, p in results]
 
     # ---- Return top results ----
@@ -155,10 +175,22 @@ def register_routes(app):
     def config():
         return jsonify({"use_llm": USE_LLM})
     
+    @app.route("/api/categories")
+    def get_categories():
+        rows = db.session.query(Product.primary_category).distinct().filter(
+            Product.primary_category != None, Product.primary_category != ''
+        ).all()
+        return jsonify(sorted([r[0] for r in rows if r[0]]))
+
     @app.route("/api/products/search")
     def search_products():
         q = request.args.get("q", "")
-        return jsonify(ranked_product_search(q))
+        category = request.args.get("category", "")
+        min_price = request.args.get("min_price", type=float)
+        max_price = request.args.get("max_price", type=float)
+        min_rating = request.args.get("min_rating", type=float)
+        sort_by = request.args.get("sort_by", "relevance")
+        return jsonify(ranked_product_search(q, category=category, min_price=min_price, max_price=max_price, min_rating=min_rating, sort_by=sort_by))
     
     @app.get('/score')
     def get_score_name():
