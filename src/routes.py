@@ -68,7 +68,7 @@ def ranked_product_search(query):
     # ---- Build text corpus ----
     corpus = []
     for p in products:
-        text = f"{p.product_name or ''} {p.brand_name or ''} {p.primary_category or ''} {p.secondary_category or ''} {p.category or ''}"
+        text = f"{p.product_name or ''} {p.brand_name or ''} {p.primary_category or ''} {p.secondary_category or ''} {p.category or ''} {p.description or ''} {p.ingredients or ''}"
         corpus.append(text.lower())
 
     # ---- TF-IDF ----
