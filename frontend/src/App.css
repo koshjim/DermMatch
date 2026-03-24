@@ -70,6 +70,45 @@
   font-family: 'Open Sans', sans-serif;
 }
 
+/* ── Filters & sort bar ────────────────────────────────────────────────────── */
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  width: 700px;
+  max-width: 100%;
+  justify-content: center;
+}
+
+.filter-bar select,
+.filter-bar input[type="number"] {
+  padding: 6px 10px;
+  border: 1px solid #dfe1e5;
+  border-radius: 20px;
+  font-size: 13px;
+  font-family: 'Open Sans', sans-serif;
+  background: #fff;
+  color: #3c4043;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.filter-bar input[type="number"] {
+  width: 90px;
+  cursor: text;
+}
+
+.filter-bar select:hover,
+.filter-bar input[type="number"]:hover,
+.filter-bar select:focus,
+.filter-bar input[type="number"]:focus {
+  border-color: #4285F4;
+  box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.15);
+}
+
 /* ── Search results ────────────────────────────────────────────────────────── */
 
 #answer-box {
