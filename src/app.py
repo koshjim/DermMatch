@@ -1,9 +1,10 @@
 import json
 import os
 import csv
+import re
 from dotenv import load_dotenv
 from flask import Flask
-from fastapi import FastAPI
+# from fastapi import FastAPI
 
 load_dotenv()
 from flask_cors import CORS
@@ -14,13 +15,7 @@ from routes import register_routes
 current_directory = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_directory)
 
-app = FastAPI()
-
-score_name = "My Score"
-
-@app.get("/score")
-def get_score_name():
-    return {"Similarity Score": score_name}
+# app = FastAPI()
 
 # Serve React build files from <project_root>/frontend/dist
 app = Flask(__name__,
@@ -32,11 +27,18 @@ CORS(app)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///data.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+
 # Initialize database with app
 db.init_app(app)
 
 # Register routes
 register_routes(app)
+
+# score_name = "My Score"
+
+# @app.get("/score")
+# def get_score_name():
+#     return {"Similarity Score": score_name}
 
 # Function to initialize database, change this to your own database initialization logic
 def to_bool(val):
@@ -79,6 +81,19 @@ def init_db():
                 reader = csv.DictReader(csvfile)
 
                 for row in reader:
+                    # Clean description: remove "Shop..." sentences and specific phrases
+                    desc = row.get('description') or ""
+                    desc = re.sub(r'(?i)shop[^.]*\.\s*', '', desc)
+                    desc = re.sub(r'(?i)what\s+it\s+is:\s*', ' ', desc)
+                    desc = re.sub(r'(?i)what\s+is\s+it\s+formulated\s+to\s+do:\s*', ' ', desc)
+                    desc = re.sub(r'\s+', ' ', desc).strip()
+
+                    # Clean highlights: remove quotes and brackets
+                    high = (row.get('highlights') or "").replace('[', '').replace(']', '').replace("'", "")
+
+                    # Clean category: replace dashes with spaces
+                    cat = (row.get('category') or "").replace('-', ' ')
+
                     product = Product(
                         product_id=row.get('product_id'),
                         product_name=row.get('product_name'),
@@ -88,7 +103,7 @@ def init_db():
                         value_price_usd=to_float(row.get('value_price_usd')),
                         sale_price_usd=to_float(row.get('sale_price_usd')),
 
-                        description=row.get('description'),
+                        description=desc,
                         ingredients=row.get('ingredients'),
 
                         loves_count=to_int(row.get('loves_count')),
@@ -110,12 +125,12 @@ def init_db():
                         out_of_stock=to_bool(row.get('out_of_stock')),
                         sephora_exclusive=to_bool(row.get('sephora_exclusive')),
 
-                        highlights=row.get('highlights'),
+                        highlights=high,
 
                         primary_category=row.get('primary_category'),
                         secondary_category=row.get('secondary_category'),
                         tertiary_category=row.get('tertiary_category'),
-                        category=row.get('category'),
+                        category=cat,
 
                         child_count=to_int(row.get('child_count')),
                         child_max_price=to_float(row.get('child_max_price')),

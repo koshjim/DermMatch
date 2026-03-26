@@ -60,8 +60,14 @@ def get_chemical_frequency():
 def ranked_product_search(query, category='', min_price=None, max_price=None, min_rating=None, sort_by='relevance'):
     if not query or not query.strip():
         return []
+    
+    MIN_MATCH_SCORE = 0.50
 
     products = Product.query.all()
+
+    # Filter out perfumes and hair products (identified by "All Hair Types" tag)
+    products = [p for p in products if (p.category or '').lower() != 'perfume' and 'All Hair Types' not in (p.highlights or '')]
+
     chem_freq = get_chemical_frequency()
     max_chem_freq = max([freq for name, freq in chem_freq]) if chem_freq else 1
 
@@ -131,6 +137,10 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     if min_rating is not None:
         results = [(s, p) for s, p in results if p.rating is not None and p.rating >= min_rating]
 
+    results = [(s, p) for s, p in results if s > MIN_MATCH_SCORE]
+    if not results:
+        return []
+    
     # ---- Sort ----
     if sort_by == 'price_asc':
         results.sort(key=lambda x: x[1].price or 0)
@@ -166,7 +176,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         "safety_score": getattr(p, "safety_score", 100.0),
         "score": score,
         "flagged_ingredients": p.flagged_ingredients
-    } for score, p in results[:15]]
+    } for score, p in results]
 
 
 

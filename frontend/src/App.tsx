@@ -103,10 +103,10 @@ function App(): JSX.Element {
         </select>
         <select value={filters.sortBy} onChange={e => handleFilterChange('sortBy', e.target.value)}>
           <option value="relevance">Sort: Relevance</option>
-          <option value="price_asc">Price: Low → High</option>
-          <option value="price_desc">Price: High → Low</option>
-          <option value="rating">Highest Rated</option>
-          <option value="safety">Safest First</option>
+          <option value="price_asc">Sort: Price, Low → High</option>
+          <option value="price_desc">Sort: Price, High → Low</option>
+          <option value="rating">Sort: Highest Rated</option>
+          <option value="safety">Sort: Safest First</option>
         </select>
       </div>
 
@@ -134,13 +134,13 @@ function App(): JSX.Element {
             </div>
 
             {/* Status badges */}
-            <div className="badge-row">
-              {product.is_new && <span className="badge badge-new">New</span>}
-              {product.sephora_exclusive && <span className="badge badge-exclusive">Sephora Exclusive</span>}
-              {product.limited_edition && <span className="badge badge-limited">Limited Edition</span>}
-              {product.out_of_stock && <span className="badge badge-oos">Out of Stock</span>}
+            {/* <div className="badge-row"> */}
+              {/* {product.is_new && <span className="badge badge-new">New</span>} */}
+              {/* {product.sephora_exclusive && <span className="badge badge-exclusive">Sephora Exclusive</span>} */}
+              {/* {product.limited_edition && <span className="badge badge-limited">Limited Edition</span>} */}
+              {/* {product.out_of_stock && <span className="badge badge-oos">Out of Stock</span>} */}
               <span className="badge badge-category">{product.category}</span>
-            </div>
+            {/* </div> */}
 
             {/* Rating + price row */}
             <div className="meta-row">
@@ -166,7 +166,9 @@ function App(): JSX.Element {
                 {product.highlights.split(',').map((h, i) => (
                   <span key={i} className="highlight-tag">{h.trim()}</span>
                 ))}
+                <span className="badge badge-category">{product.category}</span>
               </div>
+              
             )}
 
             <p className="product-description">{product.description}</p>
