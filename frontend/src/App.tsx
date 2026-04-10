@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './App.css'
 import SearchIcon from './assets/mag.png'
 import { Product } from './types'
@@ -33,9 +33,12 @@ function App(): JSX.Element {
   const [useLlm, setUseLlm] = useState<boolean | null>(null)
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [hasSearched, setHasSearched] = useState<boolean>(false)
+  const [isSearching, setIsSearching] = useState<boolean>(false)
+  const [visibleCount, setVisibleCount] = useState<number>(24)
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<string[]>([])
   const [filters, setFilters] = useState<Filters>({ category: '', minPrice: '', maxPrice: '', minRating: '', sortBy: 'relevance' })
+  const latestRequestId = useRef<number>(0)
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
@@ -43,31 +46,75 @@ function App(): JSX.Element {
   }, [])
 
   const runSearch = async (term: string, currentFilters: Filters): Promise<void> => {
-    if (term.trim() === '') { setProducts([]); return }
-    const params = new URLSearchParams({ q: term })
+    const trimmed = term.trim()
+    if (trimmed === '') {
+      setProducts([])
+      setIsSearching(false)
+      return
+    }
+
+    const requestId = ++latestRequestId.current
+    const params = new URLSearchParams({ q: trimmed })
     if (currentFilters.category) params.set('category', currentFilters.category)
     if (currentFilters.minPrice) params.set('min_price', currentFilters.minPrice)
     if (currentFilters.maxPrice) params.set('max_price', currentFilters.maxPrice)
     if (currentFilters.minRating) params.set('min_rating', currentFilters.minRating)
     if (currentFilters.sortBy !== 'relevance') params.set('sort_by', currentFilters.sortBy)
-    const response = await fetch(`/api/products/search?${params}`)
-    const data: Product[] = await response.json()
-    setProducts(data)
+    try {
+      const response = await fetch(`/api/products/search?${params}`)
+      if (!response.ok) {
+        throw new Error(`Search request failed with status ${response.status}`)
+      }
+      const data: Product[] = await response.json()
+      if (requestId === latestRequestId.current) {
+        setProducts(data)
+      }
+    } catch {
+      if (requestId === latestRequestId.current) {
+        setProducts([])
+      }
+    } finally {
+      if (requestId === latestRequestId.current) {
+        setIsSearching(false)
+      }
+    }
   }
 
   const handleSearch = async (value: string): Promise<void> => {
     setSearchTerm(value)
     if (value.trim()) setHasSearched(true)
-    await runSearch(value, filters)
   }
 
   const handleFilterChange = (key: keyof Filters, value: string): void => {
     const newFilters = { ...filters, [key]: value }
     setFilters(newFilters)
-    runSearch(searchTerm, newFilters)
   }
 
+  useEffect(() => {
+    const trimmed = searchTerm.trim()
+    if (!trimmed) {
+      latestRequestId.current += 1
+      setIsSearching(false)
+      setVisibleCount(24)
+      setProducts([])
+      return
+    }
+
+    setVisibleCount(24)
+    setIsSearching(true)
+    const timer = window.setTimeout(() => {
+      runSearch(trimmed, filters)
+    }, 350)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [searchTerm, filters])
+
   if (useLlm === null) return <></>
+
+  const visibleProducts = products.slice(0, visibleCount)
+  const canShowMore = products.length > visibleCount
 
   return (
     <div className={`full-body-container ${useLlm ? 'llm-mode' : ''} ${hasSearched ? 'searching' : ''}`}>
@@ -112,35 +159,40 @@ function App(): JSX.Element {
 
       {/* Search results (always shown) */}
       <div id="answer-box">
-        {searchTerm.trim() && products.length > 0 && (
+        {searchTerm.trim() && isSearching && (
+          <p className="search-status">Searching...</p>
+        )}
+        {searchTerm.trim() && !isSearching && products.length > 0 && (
           <p className="result-count">{products.length} result{products.length !== 1 ? 's' : ''} for "{searchTerm}"</p>
         )}
-        {searchTerm.trim() && products.length === 0 && (
+        {searchTerm.trim() && !isSearching && products.length === 0 && (
           <div className="empty-state">
             <p>No products found for "{searchTerm}"</p>
             <p className="empty-hint">Try a different search term or adjust your filters.</p>
           </div>
         )}
-        {products.map((product, index) => (
+        {visibleProducts.map((product, index) => (
           <div key={index} className={`product-item${product.out_of_stock ? ' out-of-stock' : ''}`}>
 
-            {/* Top row: name + safety badge */}
+            {/* Top row: product name/brand */}
             <div className="card-header">
               <div>
                 <h3 className="product-name">{product.name}</h3>
                 <p className="product-brand">{product.brand}</p>
               </div>
-              <SafetyBadge score={product.safety_score} />
             </div>
 
-            {/* Status badges */}
-            {/* <div className="badge-row"> */}
-              {/* {product.is_new && <span className="badge badge-new">New</span>} */}
-              {/* {product.sephora_exclusive && <span className="badge badge-exclusive">Sephora Exclusive</span>} */}
-              {/* {product.limited_edition && <span className="badge badge-limited">Limited Edition</span>} */}
-              {/* {product.out_of_stock && <span className="badge badge-oos">Out of Stock</span>} */}
+            {/* Unified pill row */}
+            <div className="pill-row">
+              <SafetyBadge score={product.safety_score} />
               <span className="badge badge-category">{product.category}</span>
-            {/* </div> */}
+              {product.highlights && product.highlights.split(',').map((h, i) => (
+                <span key={`highlight-${i}`} className="highlight-tag">{h.trim()}</span>
+              ))}
+              {product.flagged_ingredients?.map((ing, i) => (
+                <span key={`flagged-${i}`} className="flagged-tag">{ing}</span>
+              ))}
+            </div>
 
             {/* Rating + price row */}
             <div className="meta-row">
@@ -160,32 +212,21 @@ function App(): JSX.Element {
               </span>
             </div>
 
-            {/* Highlights */}
-            {product.highlights && (
-              <div className="highlights-row">
-                {product.highlights.split(',').map((h, i) => (
-                  <span key={i} className="highlight-tag">{h.trim()}</span>
-                ))}
-                <span className="badge badge-category">{product.category}</span>
-              </div>
-              
-            )}
-
             <p className="product-description">{product.description}</p>
-
-            {/* Flagged ingredients */}
-            {product.flagged_ingredients?.length > 0 && (
-              <div className="flagged-block">
-                <span className="flagged-label">⚠ Flagged ingredients: </span>
-                {product.flagged_ingredients.map((ing, i) => (
-                  <span key={i} className="flagged-tag">{ing}</span>
-                ))}
-              </div>
-            )}
 
             <p className="match-score-label">Match: {(product.score * 100).toFixed(0)}%</p>
           </div>
         ))}
+
+        {searchTerm.trim() && !isSearching && canShowMore && (
+          <button
+            type="button"
+            className="show-more-button"
+            onClick={() => setVisibleCount((current) => current + 24)}
+          >
+            Show {products.length - visibleCount} more products
+          </button>
+        )}
       </div>
 
       {/* Chat (only when USE_LLM = True in routes.py) */}

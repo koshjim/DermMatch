@@ -1,7 +1,6 @@
 import json
 import os
 import csv
-import re
 from dotenv import load_dotenv
 from flask import Flask
 # from fastapi import FastAPI
@@ -60,19 +59,24 @@ def to_int(val):
     except:
         return None
 
-def get_chemical_frequency():
-    file_path = os.path.join(current_directory, 'makeupchemicalscleaned.csv')
-    chemical_counts = {}
 
-    if os.path.exists(file_path):
-        with open(file_path, newline='', encoding='utf-8') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                name = row.get('ChemicalName')
-                if name:
-                    chemical_counts[name] = chemical_counts.get(name, 0) + 1
-    
-    return list(chemical_counts.items())
+def sanitize_description(val):
+    desc = (val or "").strip()
+    if not desc:
+        return ""
+
+    desc_norm = " ".join(desc.lower().split())
+    placeholder_values = {"na", "n/a", "none", "null", "unknown", "tbd", "wf", "-", "--"}
+    if desc_norm in placeholder_values:
+        return ""
+
+    # Remove clearly non-informative short descriptions.
+    if len(desc_norm) < 4:
+        return ""
+    if len(desc_norm.split()) <= 2 and len(desc_norm) <= 12:
+        return ""
+
+    return desc
 
 def init_db():
     with app.app_context():
@@ -102,24 +106,18 @@ def init_db():
             print("Database initialized with skincare products data")
 =======
         if Product.query.count() == 0:
+            # Assumes src/datacleaning.py has already cleaned and overwritten this CSV.
             file_path = os.path.join(current_directory, 'final_merged_dataset.csv')
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"Missing cleaned dataset: {file_path}")
 
             with open(file_path, newline='', encoding='utf-8') as csvfile:
                 reader = csv.DictReader(csvfile)
 
                 for row in reader:
-                    # Clean description: remove "Shop..." sentences and specific phrases
-                    desc = row.get('description') or ""
-                    desc = re.sub(r'(?i)shop[^.]*\.\s*', '', desc)
-                    desc = re.sub(r'(?i)what\s+it\s+is:\s*', ' ', desc)
-                    desc = re.sub(r'(?i)what\s+is\s+it\s+formulated\s+to\s+do:\s*', ' ', desc)
-                    desc = re.sub(r'\s+', ' ', desc).strip()
-
-                    # Clean highlights: remove quotes and brackets
-                    high = (row.get('highlights') or "").replace('[', '').replace(']', '').replace("'", "")
-
-                    # Clean category: replace dashes with spaces
-                    cat = (row.get('category') or "").replace('-', ' ')
+                    desc = sanitize_description(row.get('description'))
+                    high = (row.get('highlights') or "").strip()
+                    cat = (row.get('category') or "").strip()
 
                     product = Product(
                         product_id=row.get('product_id'),
