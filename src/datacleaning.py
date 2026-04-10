@@ -22,6 +22,9 @@ def clean_description(val):
         return ""
     s = str(val)
 
+    # Replace hyphens connecting words with spaces.
+    s = re.sub(r"(?<=\w)-(?=\w)", " ", s)
+
     # Remove full sentence starting with "shop"
     s = re.sub(r"(?i)\bshop\b[^.!?]*(?:[.!?]|$)", " ", s)
 
@@ -36,6 +39,20 @@ def clean_description(val):
     # Normalize whitespace
     s = re.sub(r"\s+", " ", s).strip()
     return s
+
+
+def trim_to_this_sentence(description):
+    if pd.isna(description):
+        return ""
+    text = str(description).strip()
+    if not text:
+        return ""
+
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    for i, sentence in enumerate(sentences):
+        if re.match(r"(?i)^\s*this\b", sentence):
+            return " ".join(sentences[i:]).strip()
+    return text
 
 # Ensure category uses spaces, not dashes
 if "category" in df.columns:
@@ -54,6 +71,21 @@ if "ingredients" in df.columns:
 
 if "description" in df.columns:
     df["description"] = df["description"].apply(clean_description)
+
+# Product-specific fix: ensure this description starts with the first "This..." sentence.
+if "description" in df.columns and "product_name" in df.columns:
+    supergoop_mask = df["product_name"].astype(str).str.contains(
+        r"every\.\s*single\.\s*face\..*lotion",
+        case=False,
+        na=False,
+        regex=True,
+    )
+    if "brand_name" in df.columns:
+        supergoop_mask &= df["brand_name"].astype(str).str.contains(r"supergoop", case=False, na=False)
+    elif "brand" in df.columns:
+        supergoop_mask &= df["brand"].astype(str).str.contains(r"supergoop", case=False, na=False)
+
+    df.loc[supergoop_mask, "description"] = df.loc[supergoop_mask, "description"].apply(trim_to_this_sentence)
 
 # Extra pass for JACK BLACK descriptions (if brand column exists)
 brand_col = next((c for c in ["brand", "brand_name", "brandName"] if c in df.columns), None)
