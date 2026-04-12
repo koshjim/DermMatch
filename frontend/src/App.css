@@ -289,6 +289,8 @@ body {
 /* ── Product card ───────────────────────────────────────────────────────── */
 
 .product-item {
+  display: flex;
+  flex-direction: column;
   font-family: 'DM Sans', sans-serif;
   background: #fff;
   border: 1.5px solid #DDE8E0;
@@ -303,16 +305,6 @@ body {
   border-color: #5A8F6E;
 }
 
-.product-item.out-of-stock { opacity: 0.65; }
-
-/* Card header */
-/* .card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 0.35rem;
-} */
 .card-header {
   display: flex;
   flex-direction: column;
@@ -521,6 +513,13 @@ body {
   color: #232323;
   margin: 0;
   text-align: right;
+}
+
+.match-score-wrapper {
+  display: flex;
+  margin-top: auto;
+  align-items: flex-end;
+  justify-content: flex-end;
 }
 
 .show-more-button {

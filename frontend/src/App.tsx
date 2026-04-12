@@ -184,7 +184,7 @@ function App(): JSX.Element {
                   <SafetyBadge score={product.safety_score} />
                 </div>
                 </div>
-                
+
                 <div>
                   <h3 className="product-name">
                     {product.url ? <a href={product.url} target="_blank" rel="noreferrer">{product.name}</a> : product.name}
@@ -227,7 +227,9 @@ function App(): JSX.Element {
               </details>
             )}
 
-            <p className="match-score-label">Match: {product.score.toFixed(1)}%</p>
+            <div className="match-score-wrapper">
+              <p className="match-score-label">Match: {product.score.toFixed(1)}%</p>
+            </div>
           </div>
         ))}
 
@@ -235,9 +237,9 @@ function App(): JSX.Element {
           <button
             type="button"
             className="show-more-button"
-            onClick={() => setVisibleCount((current) => current + 24)}
+            onClick={() => setVisibleCount((current) => current + 60)}
           >
-            Show {products.length - visibleCount} more products
+            Show {products.length - visibleCount} more products 
           </button>
         )}
       </div>
