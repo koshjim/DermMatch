@@ -186,9 +186,13 @@ function App(): JSX.Element {
             <div className="pill-row">
               <SafetyBadge score={product.safety_score} />
               <span className="badge badge-category">{product.category}</span>
-              {product.highlights && product.highlights.split(',').map((h, i) => (
+              {product.highlights && product.highlights.replace(/^\[|\]$/g, '').split(',').map((h, i) => {
+                const clean = h.trim().replace(/^['"]|['"]$/g, '').trim()
+                return clean ? <span key={`highlight-${i}`} className="highlight-tag">{clean}</span> : null
+              })}
+              {/* {{product.highlights && product.highlights.split(',').map((h, i) => (
                 <span key={`highlight-${i}`} className="highlight-tag">{h.trim()}</span>
-              ))}
+              ))}}  */}
               {product.flagged_ingredients?.map((ing, i) => (
                 <span key={`flagged-${i}`} className="flagged-tag">{ing}</span>
               ))}
