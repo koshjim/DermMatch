@@ -177,12 +177,21 @@ function App(): JSX.Element {
             {/* Top row: product name/brand + safety score */}
             <div className="card-header">
               <div>
+
+                <div className="brand-safety-row">
                 <p className="product-brand">{product.brand}</p>
-                <h3 className="product-name">
-                  {product.url ? <a href={product.url} target="_blank" rel="noreferrer">{product.name}</a> : product.name}
-                </h3>
+                <div style={{ flexShrink: 0 }}>
+                  <SafetyBadge score={product.safety_score} />
+                </div>
+                </div>
+                
+                <div>
+                  <h3 className="product-name">
+                    {product.url ? <a href={product.url} target="_blank" rel="noreferrer">{product.name}</a> : product.name}
+                  </h3>
+                </div>
+
               </div>
-              <SafetyBadge score={product.safety_score} />
             </div>
 
             {/* Unified pill row */}

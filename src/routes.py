@@ -504,10 +504,20 @@ def register_routes(app):
     
     @app.route("/api/categories")
     def get_categories():
-        rows = db.session.query(Product.primary_category).distinct().filter(
-            Product.primary_category != None, Product.primary_category != ''
+        rows = db.session.query(Product.category).filter(
+            Product.category != None, Product.category != ''
         ).all()
-        return jsonify(sorted([r[0] for r in rows if r[0]]))
+
+        parent_counts = {}
+        for (category,) in rows:
+            parent = category.split(">")[0].split("/")[0].strip()
+            if parent:
+                parent_counts[parent] = parent_counts.get(parent, 0) + 1
+
+        top5 = sorted(parent_counts, key=lambda k: parent_counts[k], reverse=True)[:5]
+
+        print(sorted(parent_counts.items(), key=lambda k: k[1], reverse=True))
+        return jsonify(top5)
 
     @app.route("/api/products/search")
     def search_products():
@@ -522,25 +532,6 @@ def register_routes(app):
     @app.get('/score')
     def get_score_name():
         return jsonify({'Similarity Score': score_name})
-    
-
-    # @app.route("/api/products")
-    # def products():
-    #     text = request.args.get("name", "")
-    #     return jsonify(json_search(text))
-
-    # i dont think we need this!
-    @app.route("/api/products")
-    def get_products():
-        products = Product.query.limit(15).all()
-
-        return jsonify([{
-            "id": p.id,
-            "name": p.product_name,
-            "brand": p.brand_name,
-            "price": p.price,
-            "rating": p.rating
-        } for p in products])
 
     if USE_LLM:
         from llm_routes import register_chat_route
