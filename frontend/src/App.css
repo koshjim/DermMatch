@@ -370,9 +370,9 @@ body {
   white-space: nowrap;
 }
 
-.safety-high   { background: #E4F2E9; color: #2E6B42; }
-.safety-medium { background: #FDF0DF; color: #9A5E14; }
-.safety-low    { background: #FAEBE8; color: #923328; }
+.safety-high   { background: #E4F2E9 !important; color: #2E6B42 !important; border-color: #A8D5B5 !important; }
+.safety-medium { background: #FDF0DF !important; color: #9A5E14 !important; border-color: #F0D5B0 !important; }
+.safety-low    { background: #FAEBE8 !important; color: #923328 !important; border-color: #F0C0B8 !important; }
 
 .safety-high,
 .safety-medium,

@@ -25,7 +25,7 @@ function StarRating({ rating }: { rating: number }) {
 
 function SafetyBadge({ score }: { score: number }) {
   const level = score >= 75 ? 'high' : score >= 45 ? 'medium' : 'low'
-  const label = score >= 75 ? 'Clean' : score >= 45 ? 'Moderate' : 'Review'
+  const label = score >= 75 ? 'Clean' : score >= 45 ? 'Moderate' : 'Caution'
   return <span className={`safety-badge safety-${level}`}>⬤ {label} ({Math.round(score)})</span>
 }
 
