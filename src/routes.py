@@ -477,6 +477,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         "safety_score": getattr(p, 'safety_score', 100.0), 
         "score": s,
         "flagged_ingredients": p.flagged_ingredients,
+        "url": f"https://www.sephora.com/product/{p.product_id}" if p.product_id else None,
     } for s, p in results]
 
 def register_routes(app):

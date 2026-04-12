@@ -174,25 +174,20 @@ function App(): JSX.Element {
         {visibleProducts.map((product, index) => (
           <div key={index} className={`product-item${product.out_of_stock ? ' out-of-stock' : ''}`}>
 
-            {/* Top row: product name/brand */}
+            {/* Top row: product name/brand + safety score */}
             <div className="card-header">
               <div>
-                <h3 className="product-name">{product.name}</h3>
                 <p className="product-brand">{product.brand}</p>
+                <h3 className="product-name">
+                  {product.url ? <a href={product.url} target="_blank" rel="noreferrer">{product.name}</a> : product.name}
+                </h3>
               </div>
+              <SafetyBadge score={product.safety_score} />
             </div>
 
             {/* Unified pill row */}
             <div className="pill-row">
-              <SafetyBadge score={product.safety_score} />
               <span className="badge badge-category">{product.category}</span>
-              {/* {product.highlights && product.highlights.split(',').map((h, i) => (
-                <span key={`highlight-${i}`} className="highlight-tag">{h.trim()}</span>
-              ))} */}
-              {product.highlights && product.highlights.replace(/^\[|\]$/g, '').split(',').map((h, i) => {
-                const clean = h.trim().replace(/^['"]|['"]$/g, '').trim()
-                return clean ? <span key={`highlight-${i}`} className="highlight-tag">{clean}</span> : null
-              })}
               {product.flagged_ingredients?.map((ing, i) => (
                 <span key={`flagged-${i}`} className="flagged-tag">{ing}</span>
               ))}
@@ -216,7 +211,12 @@ function App(): JSX.Element {
               </span>
             </div>
 
-            <p className="product-description">{product.description}</p>
+            {product.description && (
+              <details className="description-dropdown">
+                <summary>Description</summary>
+                <p className="product-description">{product.description}</p>
+              </details>
+            )}
 
             <p className="match-score-label">Match: {product.score.toFixed(1)}%</p>
           </div>
