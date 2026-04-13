@@ -394,45 +394,8 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
             "bottom": dims_to_list(bottom_dims)
         }
     
-
-    terms = vectorizer.get_feature_names_out()
     # For each top result, show which dimensions drove the match (positive and negative)
     terms = vectorizer.get_feature_names_out()
-    top_indices = svd_sim.argsort()[-5:][::-1]
-
-    for idx in top_indices:
-        p = products[idx]
-        dim_contributions = query_lsa[0] * doc_lsa[idx]
-        
-        # Top 3 positively and negatively contributing dimensions
-        top_pos_dims = dim_contributions.argsort()[-3:][::-1]
-        top_neg_dims = dim_contributions.argsort()[:3]
-
-        print(f"\nProduct: {p.product_name} (SVD score: {svd_sim[idx]:.4f})")
-        
-        print("  [+] Positively activated dimensions:")
-        for dim in top_pos_dims:
-            top_terms = [terms[i] for i in svd.components_[dim].argsort()[-5:][::-1]]
-            neg_terms = [terms[i] for i in svd.components_[dim].argsort()[:3]]
-            print(f"      Dim {dim:>3} (contribution: +{dim_contributions[dim]:.4f}) | top terms: {top_terms} | suppressed: {neg_terms}")
-
-        print("  [-] Negatively activated dimensions:")
-        for dim in top_neg_dims:
-            top_terms = [terms[i] for i in svd.components_[dim].argsort()[-5:][::-1]]
-            neg_terms = [terms[i] for i in svd.components_[dim].argsort()[:3]]
-            print(f"      Dim {dim:>3} (contribution: {dim_contributions[dim]:.4f}) | top terms: {top_terms} | suppressed: {neg_terms}")
-
-    # Debug: check explained variance and category separation
-    print(f"Explained variance: {svd.explained_variance_ratio_.sum():.1%}")
-    terms = vectorizer.get_feature_names_out()
-    for cat_term in ['cleanser', 'toner', 'moistur', 'serum', 'salicylic']:
-        matches = [i for i, t in enumerate(terms) if cat_term in t]
-        if matches:
-            dim = svd.components_[:, matches[0]].argmax()
-            print(f"'{cat_term}' → dimension {dim} ({svd.explained_variance_ratio_[dim]:.1%} variance)")
-    for dim_idx in range(min(10, n_components)):
-        top_indices = svd.components_[dim_idx].argsort()[-10:][::-1]
-        print(f"Dim {dim_idx}: {[terms[i] for i in top_indices]}")
 
     similarities = 0.60 * tfidf_sim + 0.40 * svd_sim
 
