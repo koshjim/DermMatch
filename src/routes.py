@@ -225,7 +225,7 @@ def parse_query_skin_context(query):
 
     # Detect ingredient preferences/avoidances from query markers
     prefer_markers = ('with ', 'contains ', 'good for ', 'best for ', 'help ', 'helps ', 'for ')
-    avoid_markers  = ('without ', 'avoid ', 'no ', 'free of ', 'exclude ')
+    avoid_markers  = ('without ', 'avoid ', 'no ', 'free of ', 'exclude ', 'not ')
 
     wants_avoid  = any(m in normalized_query for m in avoid_markers)
     wants_prefer = not wants_avoid and any(m in normalized_query for m in prefer_markers)
@@ -342,14 +342,21 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     )
     tfidf_matrix = vectorizer.fit_transform(corpus)
 
+    # Build set of stemmed tokens to suppress from query (avoided ingredients only)
+    avoided_tokens = set()
+    for term in query_skin_context['avoided_ingredients']:
+        avoided_tokens.update(tokenize_and_stem(term))
+
     vocab = vectorizer.vocabulary_
     expanded_query_tokens = []
     for token in query_tokens:
+        if token in avoided_tokens:
+            continue  # strip avoided ingredient tokens so TF-IDF doesn't boost products containing them
         expanded_query_tokens.append(token)
         if len(token) >= 4:
             expanded_query_tokens.extend(v for v in vocab if v.startswith(token) and v != token)
 
-    query_vec = vectorizer.transform([" ".join(expanded_query_tokens)])  # was query_tokens
+    query_vec = vectorizer.transform([" ".join(expanded_query_tokens)])
 
 
     # query_vec = vectorizer.transform([" ".join(query_tokens)])
@@ -442,9 +449,13 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
             base_score = 0.0
         else:
             base_score = similarities[i]
-            if base_score < MIN_BASE_SIMILARITY:
-                continue
             if tfidf_sim[i] < MIN_TFIDF_SIMILARITY and svd_sim[i] < MIN_SVD_SIMILARITY:
+                continue
+
+            if query_category:
+                base_score *= 1.6 if category_match else 0.15
+
+            if base_score < MIN_BASE_SIMILARITY:
                 continue
 
             # Token coverage + phrase match boosts
@@ -469,10 +480,6 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
 
             if normalized_query in normalize_search_text(f"{p.product_name or ''} {p.brand_name or ''}"):
                 base_score += 0.05
-
-            # Category multiplier: strong lift for matches, penalty for mismatches
-            if query_category:
-                base_score *= 1.6 if category_match else 0.15
 
         # Safety score Old Version (chemical frequency deductions only):
         # safety_score = max(0.0, 100.0 - sum(
