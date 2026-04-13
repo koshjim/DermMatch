@@ -223,14 +223,18 @@ def parse_query_skin_context(query):
     # Detect ingredient preferences/avoidances from query markers
     prefer_markers = ('with ', 'contains ', 'good for ', 'best for ', 'help ', 'helps ', 'for ')
     avoid_markers  = ('without ', 'avoid ', 'no ', 'free of ', 'exclude ')
-    wants_prefer = any(m in normalized_query for m in prefer_markers)
+
     wants_avoid  = any(m in normalized_query for m in avoid_markers)
+    wants_prefer = not wants_avoid and any(m in normalized_query for m in prefer_markers)
 
     preferred_ingredients, avoided_ingredients = set(), set()
     for term in rules['all_good_terms'] | rules['all_bad_terms']:
         term_norm = normalize_search_text(term)
         if term_norm and re.search(rf'\b{re.escape(term_norm)}\b', normalized_query):
-            (avoided_ingredients if wants_avoid else preferred_ingredients if wants_prefer else set()).add(term)
+            if wants_avoid:
+                avoided_ingredients.add(term)
+            elif wants_prefer:
+                preferred_ingredients.add(term)
 
     # Pull condition-based ingredient guidance
     for condition in detected_conditions:
@@ -314,18 +318,25 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     def product_full_text(p):
         structured = (f"{p.product_name or ''} {p.brand_name or ''} {p.primary_category or ''} "
                     f"{p.secondary_category or ''} {p.category or ''} {p.highlights or ''}")
-        description = f"{p.description or ''} {p.ingredients or ''}"
-        return f"{structured} {structured} {structured} {description}"
+        ingredients = list(dict.fromkeys((p.ingredients or '').lower().split(',')))
+        ingredients_text = ' '.join(i.strip() for i in ingredients[:30])
+        return f"{structured} {structured} {structured} {p.description or ''} {ingredients_text}"
 
     # TF-IDF + SVD/LSA
     corpus = [" ".join(tokenize_and_stem(product_full_text(p))) for p in products]
-    vectorizer = TfidfVectorizer(stop_words='english')
+    vectorizer = TfidfVectorizer(
+        stop_words='english',
+        min_df=1,           # ignore terms in only 1 product (noise) may adjust to 2 if too slow
+        max_df=0.95,        # ignore terms in 95%+ of products (too generic)
+        ngram_range=(1, 2), # bigrams like "salicylic acid", "hyaluronic acid"
+        sublinear_tf=True,  # dampens high-frequency terms
+    )
     tfidf_matrix = vectorizer.fit_transform(corpus)
     query_vec = vectorizer.transform([" ".join(query_tokens)])
 
     tfidf_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
 
-    n_components = min(tfidf_matrix.shape[0] - 1, tfidf_matrix.shape[1] - 1, 150)
+    n_components = min(tfidf_matrix.shape[0] - 1, tfidf_matrix.shape[1] - 1, 100)
     svd_sim = np.zeros_like(tfidf_sim)
     if n_components >= 2:
         svd = TruncatedSVD(n_components=n_components, random_state=42)
@@ -333,7 +344,19 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         query_lsa = normalize(svd.transform(query_vec))
         svd_sim = cosine_similarity(query_lsa, doc_lsa).flatten()
 
-    similarities = 0.45 * tfidf_sim + 0.55 * svd_sim
+    # Debug: check explained variance and category separation
+    print(f"Explained variance: {svd.explained_variance_ratio_.sum():.1%}")
+    terms = vectorizer.get_feature_names_out()
+    for cat_term in ['cleanser', 'toner', 'moistur', 'serum', 'salicylic']:
+        matches = [i for i, t in enumerate(terms) if cat_term in t]
+        if matches:
+            dim = svd.components_[:, matches[0]].argmax()
+            print(f"'{cat_term}' → dimension {dim} ({svd.explained_variance_ratio_[dim]:.1%} variance)")
+    for dim_idx in range(min(10, n_components)):
+        top_indices = svd.components_[dim_idx].argsort()[-10:][::-1]
+        print(f"Dim {dim_idx}: {[terms[i] for i in top_indices]}")
+
+    similarities = 0.65 * tfidf_sim + 0.35 * svd_sim
 
     results = []
 
