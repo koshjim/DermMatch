@@ -336,10 +336,9 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     corpus = [" ".join(tokenize_and_stem(product_full_text(p))) for p in products]
     vectorizer = TfidfVectorizer(
         stop_words='english',
-        min_df=1,           # ignore terms in only 1 product (noise) may adjust to 2 if too slow
-        max_df=0.95,        # ignore terms in 95%+ of products (too generic)
+        min_df=1,           # may adjust to 2 if too slow/noisy
+        max_df=0.98,        # ignore terms in 95%+ of products (too generic)
         ngram_range=(1, 2), # bigrams like "salicylic acid", "hyaluronic acid"
-        sublinear_tf=True,  # dampens high-frequency terms
     )
     tfidf_matrix = vectorizer.fit_transform(corpus)
 
@@ -382,6 +381,31 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         return result
 
     terms = vectorizer.get_feature_names_out()
+    # For each top result, show which dimensions drove the match (positive and negative)
+    terms = vectorizer.get_feature_names_out()
+    top_indices = svd_sim.argsort()[-5:][::-1]
+
+    for idx in top_indices:
+        p = products[idx]
+        dim_contributions = query_lsa[0] * doc_lsa[idx]
+        
+        # Top 3 positively and negatively contributing dimensions
+        top_pos_dims = dim_contributions.argsort()[-3:][::-1]
+        top_neg_dims = dim_contributions.argsort()[:3]
+
+        print(f"\nProduct: {p.product_name} (SVD score: {svd_sim[idx]:.4f})")
+        
+        print("  [+] Positively activated dimensions:")
+        for dim in top_pos_dims:
+            top_terms = [terms[i] for i in svd.components_[dim].argsort()[-5:][::-1]]
+            neg_terms = [terms[i] for i in svd.components_[dim].argsort()[:3]]
+            print(f"      Dim {dim:>3} (contribution: +{dim_contributions[dim]:.4f}) | top terms: {top_terms} | suppressed: {neg_terms}")
+
+        print("  [-] Negatively activated dimensions:")
+        for dim in top_neg_dims:
+            top_terms = [terms[i] for i in svd.components_[dim].argsort()[-5:][::-1]]
+            neg_terms = [terms[i] for i in svd.components_[dim].argsort()[:3]]
+            print(f"      Dim {dim:>3} (contribution: {dim_contributions[dim]:.4f}) | top terms: {top_terms} | suppressed: {neg_terms}")
 
     # Debug: check explained variance and category separation
     print(f"Explained variance: {svd.explained_variance_ratio_.sum():.1%}")
@@ -395,7 +419,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         top_indices = svd.components_[dim_idx].argsort()[-10:][::-1]
         print(f"Dim {dim_idx}: {[terms[i] for i in top_indices]}")
 
-    similarities = 0.65 * tfidf_sim + 0.35 * svd_sim
+    similarities = 0.60 * tfidf_sim + 0.40 * svd_sim
 
     results = []
 
