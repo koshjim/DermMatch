@@ -114,6 +114,9 @@ def words_match(query_word, candidate_word):
         return False
     if query_word == candidate_word:
         return True
+    
+    if len(query_word) >= 4 and candidate_word.startswith(query_word):
+        return True
 
     distance_limit = 1 if max(len(query_word), len(candidate_word)) <= 5 else 2
     return levenshtein_distance(query_word, candidate_word) <= distance_limit
@@ -302,10 +305,17 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     raw_query_tokens = tokenize_and_stem(normalized_query)
     query_tokens     = tokenize_and_stem(expanded_query)
 
+    # MIN_MATCH_SCORE = 0.1
+    # MIN_BASE_SIMILARITY = 0.2
+    # MIN_TFIDF_SIMILARITY = 0.01
+    # MIN_SVD_SIMILARITY = 0.1
+    
     MIN_MATCH_SCORE = 0.1
-    MIN_BASE_SIMILARITY = 0.05 if not query_category else 0.2
-    MIN_TFIDF_SIMILARITY = 0.01
-    MIN_SVD_SIMILARITY = 0.1
+    # Lower thresholds for short/partial queries (likely incomplete input)
+    is_partial_query = len(normalized_query.split()) == 1 and len(normalized_query) <= 6
+    MIN_BASE_SIMILARITY = 0.05 if is_partial_query else 0.2
+    MIN_TFIDF_SIMILARITY = 0.001 if is_partial_query else 0.01
+    MIN_SVD_SIMILARITY = 0.02 if is_partial_query else 0.1
 
     products = Product.query.all()
     products = [p for p in products
@@ -331,7 +341,18 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         ngram_range=(1, 2), # bigrams like "salicylic acid", "hyaluronic acid"
     )
     tfidf_matrix = vectorizer.fit_transform(corpus)
-    query_vec = vectorizer.transform([" ".join(query_tokens)])
+
+    vocab = vectorizer.vocabulary_
+    expanded_query_tokens = []
+    for token in query_tokens:
+        expanded_query_tokens.append(token)
+        if len(token) >= 4:
+            expanded_query_tokens.extend(v for v in vocab if v.startswith(token) and v != token)
+
+    query_vec = vectorizer.transform([" ".join(expanded_query_tokens)])  # was query_tokens
+
+
+    # query_vec = vectorizer.transform([" ".join(query_tokens)])
 
     tfidf_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
 
@@ -343,6 +364,23 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         query_lsa = normalize(svd.transform(query_vec))
         svd_sim = cosine_similarity(query_lsa, doc_lsa).flatten()
 
+    # After svd_sim is computed, get top dimensions per product
+    def get_top_dimensions(doc_lsa_row, query_lsa_row, svd, terms, n=5):
+        # Element-wise contribution of each dimension to the similarity
+        dim_contributions = doc_lsa_row * query_lsa_row.flatten()
+        top_dims = dim_contributions.argsort()[-n:][::-1]
+        result = []
+        for dim in top_dims:
+            top_term_indices = svd.components_[dim].argsort()[-5:][::-1]
+            top_terms = [terms[i] for i in top_term_indices]
+            result.append({
+                "dim": int(dim),
+                "contribution": float(dim_contributions[dim]),
+                "top_terms": top_terms
+            })
+        return result
+
+    terms = vectorizer.get_feature_names_out()
     # For each top result, show which dimensions drove the match (positive and negative)
     terms = vectorizer.get_feature_names_out()
     top_indices = svd_sim.argsort()[-5:][::-1]
@@ -461,13 +499,19 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
 
         safety_score = max(0.0, 100.0 - sum((freq / max_chem_freq) * 2000 for name, freq in chem_freq if name.lower() in ingredients_lower) - len(avoided_hits) * 10)
 
-        p.flagged_ingredients = list({name for name, _ in chem_freq if name.lower() in ingredients_lower} | avoided_hits)
+        p.flagged_ingredients = list({name for name, _ in chem_freq if name.lower() in ingredients_lower})
+        p.avoided_ingredients = list(avoided_hits)  
+        # p.flagged_ingredients = list({name for name, _ in chem_freq if name.lower() in ingredients_lower} | avoided_hits)
         p.safety_score = safety_score
 
         # Ingredient alignment
         preferred_hits = _ingredients_present(p.ingredients, query_skin_context['preferred_ingredients'])
         p.good_ingredients = list(_ingredients_present(p.ingredients, query_skin_context['preferred_ingredients']))
         alignment = max(0.30, 1.0 + min(0.08 * len(preferred_hits), 0.32) - min(0.12 * len(avoided_hits), 0.48))
+
+        # After computing svd_sim, inside the for loop:
+        p.svd_score = float(svd_sim[i])
+        p.top_dimensions = get_top_dimensions(doc_lsa[i], query_lsa, svd, terms) if n_components >= 2 else []
 
         rating_boost = (p.rating or 0) / 5.0
         loves_boost  = min((p.loves_count or 0) / 10000, 1.0)
@@ -527,13 +571,17 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         "description": clean_product_description(p.description), 
         "ingredients": p.ingredients,
         "highlights": p.highlights, 
-        "is_new": p.new, 
-        "sephora_exclusive": p.sephora_exclusive,
-        "limited_edition": p.limited_edition, 
-        "out_of_stock": p.out_of_stock,
+        # "is_new": p.new, 
+        # "sephora_exclusive": p.sephora_exclusive,
+        # "limited_edition": p.limited_edition, 
+        # "out_of_stock": p.out_of_stock,
         "safety_score": getattr(p, 'safety_score', 100.0), 
         "score": s,
         "flagged_ingredients": p.flagged_ingredients,
+        "avoided_ingredients": getattr(p, 'avoided_ingredients', []),
+        "good_ingredients": getattr(p, 'good_ingredients', []),
+        "svd_score": getattr(p, 'svd_score', 0.0),
+        "top_dimensions": getattr(p, 'top_dimensions', []),
         "url": f"https://www.sephora.com/product/{p.product_id}" if p.product_id else None,
     } for s, p in results]
 
@@ -552,10 +600,20 @@ def register_routes(app):
     
     @app.route("/api/categories")
     def get_categories():
-        rows = db.session.query(Product.primary_category).distinct().filter(
-            Product.primary_category != None, Product.primary_category != ''
+        rows = db.session.query(Product.category).filter(
+            Product.category != None, Product.category != ''
         ).all()
-        return jsonify(sorted([r[0] for r in rows if r[0]]))
+
+        parent_counts = {}
+        for (category,) in rows:
+            parent = category.split(">")[0].split("/")[0].strip()
+            if parent:
+                parent_counts[parent] = parent_counts.get(parent, 0) + 1
+
+        top5 = sorted(parent_counts, key=lambda k: parent_counts[k], reverse=True)[:5]
+
+        # print(sorted(parent_counts.items(), key=lambda k: k[1], reverse=True))
+        return jsonify(top5)
 
     @app.route("/api/products/search")
     def search_products():
@@ -570,25 +628,6 @@ def register_routes(app):
     @app.get('/score')
     def get_score_name():
         return jsonify({'Similarity Score': score_name})
-    
-
-    # @app.route("/api/products")
-    # def products():
-    #     text = request.args.get("name", "")
-    #     return jsonify(json_search(text))
-
-    # i dont think we need this!
-    @app.route("/api/products")
-    def get_products():
-        products = Product.query.limit(15).all()
-
-        return jsonify([{
-            "id": p.id,
-            "name": p.product_name,
-            "brand": p.brand_name,
-            "price": p.price,
-            "rating": p.rating
-        } for p in products])
 
     if USE_LLM:
         from llm_routes import register_chat_route

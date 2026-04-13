@@ -132,15 +132,15 @@ df.to_csv(csv_path, index=False)
 #     print("\nProducts + primary_category where secondary_category count < 20:")
 #     print(rare_rows.sort_values(by=["secondary_category", "primary_category"]).to_string(index=False))
 
-for col in ["primary_category", "category", "secondary_category"]:
-    if col in df.columns:
-        counts = df[col].fillna("MISSING").astype(str).str.strip()
-        counts = counts.replace("", "MISSING").value_counts()
+# for col in ["primary_category", "category", "secondary_category"]:
+#     if col in df.columns:
+#         counts = df[col].fillna("MISSING").astype(str).str.strip()
+#         counts = counts.replace("", "MISSING").value_counts()
 
-        print(f"\nDistinct {col} values with quantity:")
-        print(counts.to_string())
-    else:
-        print(f"\nColumn not found: {col}")
+#         print(f"\nDistinct {col} values with quantity:")
+#         print(counts.to_string())
+#     else:
+#         print(f"\nColumn not found: {col}")
 
 # Preprocess skin condition CSV to ensure consistent formatting
 df = pd.read_csv('ingredients_skin_conditions.csv')

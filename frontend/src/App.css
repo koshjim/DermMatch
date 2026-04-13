@@ -97,7 +97,7 @@ body {
 .landing-tagline {
   font-size: clamp(1rem, 1.8vw, 1.4rem);
   color: #9EAF9E;
-  margin: 0 0 8px 0;
+  margin: 0 0 12px 0;
   opacity: 1;
   max-height: 80px;
   overflow: hidden;
@@ -289,6 +289,8 @@ body {
 /* ── Product card ───────────────────────────────────────────────────────── */
 
 .product-item {
+  display: flex;
+  flex-direction: column;
   font-family: 'DM Sans', sans-serif;
   background: #fff;
   border: 1.5px solid #DDE8E0;
@@ -303,14 +305,10 @@ body {
   border-color: #5A8F6E;
 }
 
-.product-item.out-of-stock { opacity: 0.65; }
-
-/* Card header */
 .card-header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.25rem;
   margin-bottom: 0.35rem;
 }
 
@@ -331,15 +329,27 @@ body {
   text-decoration: underline;
 }
 
+.brand-safety-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .product-brand {
   font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
   font-size: 0.75rem;
   color: #6B7A6B;
-  margin: 0;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
 
 /* Unified pill style */
 .pill-row {
@@ -476,6 +486,32 @@ body {
   margin: 0.4rem 0 0 0;
 }
 
+.svd-debug {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: #f8f8f8;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: #555;
+}
+
+.svd-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #333;
+}
+
+.svd-dim-row {
+  display: flex;
+  gap: 10px;
+  padding: 2px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.svd-dim-label { font-weight: 600; min-width: 50px; color: #2a6; }
+.svd-dim-contrib { min-width: 60px; color: #888; }
+.svd-dim-terms { color: #444; }
+
 /* Flagged ingredients */
 .flagged-block {
   display: flex;
@@ -497,12 +533,45 @@ body {
   border: 1px solid #F0D5B0;
 }
 
+.ingredient-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.ing-tag {
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.ing-good {
+  background: #d4edda;
+  /* color: #1a5c2a; */
+  /* border: 1px solid #a8d5b5; */
+}
+
+.ing-bad {
+  background: #fdecea;
+  /* color: #7a1f1f; */
+  /* border: 1px solid #f5c0bc; */
+}
+
 /* Match score */
 .match-score-label {
   font-size: 13px;
   color: #232323;
   margin: 0;
   text-align: right;
+}
+
+.match-score-wrapper {
+  display: flex;
+  margin-top: auto;
+  align-items: flex-end;
+  justify-content: flex-end;
 }
 
 .show-more-button {

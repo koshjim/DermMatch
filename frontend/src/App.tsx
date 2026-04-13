@@ -177,20 +177,39 @@ function App(): JSX.Element {
             {/* Top row: product name/brand + safety score */}
             <div className="card-header">
               <div>
-                <p className="product-brand">{product.brand}</p>
-                <h3 className="product-name">
-                  {product.url ? <a href={product.url} target="_blank" rel="noreferrer">{product.name}</a> : product.name}
-                </h3>
+
+                <div className="brand-safety-row">
+                  <p className="product-brand">{product.brand}</p>
+                  <div style={{ flexShrink: 0 }}>
+                    <SafetyBadge score={product.safety_score} />
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="product-name">
+                    {product.url ? <a href={product.url} target="_blank" rel="noreferrer">{product.name}</a> : product.name}
+                  </h3>
+                </div>
+
               </div>
-              <SafetyBadge score={product.safety_score} />
             </div>
 
             {/* Unified pill row */}
             <div className="pill-row">
               <span className="badge badge-category">{product.category}</span>
-              {product.flagged_ingredients?.map((ing, i) => (
-                <span key={`flagged-${i}`} className="flagged-tag">{ing}</span>
-              ))}
+
+              {/* Ingredient signals row */}
+              {((product.good_ingredients?.length ?? 0) > 0 || (product.avoided_ingredients?.length ?? 0) > 0) && (
+                <div className="ingredient-row">
+                  {product.good_ingredients?.map((ing, i) => (
+                    <span key={`good-${i}`} className="ing-tag ing-good">✓ {ing}</span>
+                  ))}
+                  {product.avoided_ingredients?.map((ing, i) => (
+                    <span key={`avoided-${i}`} className="ing-tag ing-bad">✗ {ing}</span>
+                  ))}
+                </div>
+              )}
+
             </div>
 
             {/* Rating + price row */}
@@ -211,14 +230,38 @@ function App(): JSX.Element {
               </span>
             </div>
 
+            
             {product.description && (
               <details className="description-dropdown">
                 <summary>Description</summary>
                 <p className="product-description">{product.description}</p>
+
+                {/* SVD debug info */}
+                {product.top_dimensions && product.top_dimensions.length > 0 && (
+                  <div className="svd-debug">
+                    <p className="svd-title">SVD Score: {product.svd_score?.toFixed(4)} — Top Latent Dimensions</p>
+                    {product.top_dimensions.map((d, i) => (
+                      <div key={i} className="svd-dim-row">
+                        <span className="svd-dim-label">Dim {d.dim}</span>
+                        <span className="svd-dim-contrib">{d.contribution.toFixed(4)}</span>
+                        <span className="svd-dim-terms">{d.top_terms.join(', ')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </details>
             )}
 
-            <p className="match-score-label">Match: {product.score.toFixed(1)}%</p>
+            {/* {product.description && (
+              <details className="description-dropdown">
+                <summary>Description</summary>
+                <p className="product-description">{product.description}</p>
+              </details>
+            )} */}
+
+            <div className="match-score-wrapper">
+              <p className="match-score-label">Match: {product.score.toFixed(1)}%</p>
+            </div>
           </div>
         ))}
 
@@ -226,7 +269,7 @@ function App(): JSX.Element {
           <button
             type="button"
             className="show-more-button"
-            onClick={() => setVisibleCount((current) => current + 24)}
+            onClick={() => setVisibleCount((current) => current + 60)}
           >
             Show {products.length - visibleCount} more products
           </button>

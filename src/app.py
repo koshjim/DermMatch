@@ -56,23 +56,23 @@ def to_int(val):
         return None
 
 
-def sanitize_description(val):
-    desc = (val or "").strip()
-    if not desc:
-        return ""
+# def sanitize_description(val):
+#     desc = (val or "").strip()
+#     if not desc:
+#         return ""
 
-    desc_norm = " ".join(desc.lower().split())
-    placeholder_values = {"na", "n/a", "none", "null", "unknown", "tbd", "wf", "-", "--"}
-    if desc_norm in placeholder_values:
-        return ""
+#     desc_norm = " ".join(desc.lower().split())
+#     placeholder_values = {"na", "n/a", "none", "null", "unknown", "tbd", "wf", "-", "--"}
+#     if desc_norm in placeholder_values:
+#         return ""
 
-    # Remove clearly non-informative short descriptions.
-    if len(desc_norm) < 4:
-        return ""
-    if len(desc_norm.split()) <= 2 and len(desc_norm) <= 12:
-        return ""
+#     # Remove clearly non-informative short descriptions.
+#     if len(desc_norm) < 4:
+#         return ""
+#     if len(desc_norm.split()) <= 2 and len(desc_norm) <= 12:
+#         return ""
 
-    return desc
+#     return desc
 
 def init_db():
     with app.app_context():
@@ -88,7 +88,7 @@ def init_db():
                 reader = csv.DictReader(csvfile)
 
                 for row in reader:
-                    desc = sanitize_description(row.get('description'))
+                    # desc = sanitize_description(row.get('description'))
                     high = (row.get('highlights') or "").strip()
                     cat = (row.get('category') or "").strip()
 
@@ -98,8 +98,8 @@ def init_db():
                         brand_name=row.get('brand_name'),
 
                         price=to_float(row.get('price')),
-                        value_price_usd=to_float(row.get('value_price_usd')),
-                        sale_price_usd=to_float(row.get('sale_price_usd')),
+                        # value_price_usd=to_float(row.get('value_price_usd')),
+                        # sale_price_usd=to_float(row.get('sale_price_usd')),
 
                         description=desc,
                         ingredients=row.get('ingredients'),
@@ -117,11 +117,11 @@ def init_db():
 
                         brand_id=row.get('brand_id'),
 
-                        limited_edition=to_bool(row.get('limited_edition')),
-                        new=to_bool(row.get('new')),
-                        online_only=to_bool(row.get('online_only')),
-                        out_of_stock=to_bool(row.get('out_of_stock')),
-                        sephora_exclusive=to_bool(row.get('sephora_exclusive')),
+                        # limited_edition=to_bool(row.get('limited_edition')),
+                        # new=to_bool(row.get('new')),
+                        # online_only=to_bool(row.get('online_only')),
+                        # out_of_stock=to_bool(row.get('out_of_stock')),
+                        # sephora_exclusive=to_bool(row.get('sephora_exclusive')),
 
                         highlights=high,
 
@@ -130,16 +130,15 @@ def init_db():
                         tertiary_category=row.get('tertiary_category'),
                         category=cat,
 
-                        child_count=to_int(row.get('child_count')),
-                        child_max_price=to_float(row.get('child_max_price')),
-                        child_min_price=to_float(row.get('child_min_price')),
+                        # child_count=to_int(row.get('child_count')),
+                        # child_max_price=to_float(row.get('child_max_price')),
+                        # child_min_price=to_float(row.get('child_min_price')),
 
-                        currency=row.get('currency'),
+                        # currency=row.get('currency'),
                         label=row.get('label'),
                         score=0.0,
                         safety_score=100.0,
-                        flagged_ingredients=[],
-                        good_ingredients=[]
+                        flagged_ingredients=[]
                     )
 
                     db.session.add(product)

@@ -18,6 +18,9 @@ export interface Product {
   score: number;
   safety_score: number;
   flagged_ingredients: string[];
+  avoided_ingredients?: string[];
   good_ingredients: string[];
   url: string | null;
+  svd_score?: number;
+top_dimensions?: { dim: number; contribution: number; top_terms: string[] }[];
 }
