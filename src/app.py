@@ -56,23 +56,23 @@ def to_int(val):
         return None
 
 
-# def sanitize_description(val):
-#     desc = (val or "").strip()
-#     if not desc:
-#         return ""
+def sanitize_description(val):
+    desc = (val or "").strip()
+    if not desc:
+        return ""
 
-#     desc_norm = " ".join(desc.lower().split())
-#     placeholder_values = {"na", "n/a", "none", "null", "unknown", "tbd", "wf", "-", "--"}
-#     if desc_norm in placeholder_values:
-#         return ""
+    desc_norm = " ".join(desc.lower().split())
+    placeholder_values = {"na", "n/a", "none", "null", "unknown", "tbd", "wf", "-", "--"}
+    if desc_norm in placeholder_values:
+        return ""
 
-#     # Remove clearly non-informative short descriptions.
-#     if len(desc_norm) < 4:
-#         return ""
-#     if len(desc_norm.split()) <= 2 and len(desc_norm) <= 12:
-#         return ""
+    # Remove clearly non-informative short descriptions.
+    if len(desc_norm) < 4:
+        return ""
+    if len(desc_norm.split()) <= 2 and len(desc_norm) <= 12:
+        return ""
 
-#     return desc
+    return desc
 
 def init_db():
     with app.app_context():
@@ -88,7 +88,7 @@ def init_db():
                 reader = csv.DictReader(csvfile)
 
                 for row in reader:
-                    # desc = sanitize_description(row.get('description'))
+                    desc = sanitize_description(row.get('description'))
                     high = (row.get('highlights') or "").strip()
                     cat = (row.get('category') or "").strip()
 

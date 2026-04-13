@@ -366,19 +366,27 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
 
     # After svd_sim is computed, get top dimensions per product
     def get_top_dimensions(doc_lsa_row, query_lsa_row, svd, terms, n=5):
-        # Element-wise contribution of each dimension to the similarity
         dim_contributions = doc_lsa_row * query_lsa_row.flatten()
         top_dims = dim_contributions.argsort()[-n:][::-1]
-        result = []
-        for dim in top_dims:
-            top_term_indices = svd.components_[dim].argsort()[-5:][::-1]
-            top_terms = [terms[i] for i in top_term_indices]
-            result.append({
-                "dim": int(dim),
-                "contribution": float(dim_contributions[dim]),
-                "top_terms": top_terms
-            })
-        return result
+        bottom_dims = dim_contributions.argsort()[:n]
+
+        def dims_to_list(dims):
+            result = []
+            for dim in dims:
+                top_term_indices = svd.components_[dim].argsort()[-5:][::-1]
+                top_terms = [terms[i] for i in top_term_indices]
+                result.append({
+                    "dim": int(dim),
+                    "contribution": float(dim_contributions[dim]),
+                    "top_terms": top_terms
+                })
+            return result
+
+        return {
+            "top": dims_to_list(top_dims),
+            "bottom": dims_to_list(bottom_dims)
+        }
+    
 
     terms = vectorizer.get_feature_names_out()
     # For each top result, show which dimensions drove the match (positive and negative)

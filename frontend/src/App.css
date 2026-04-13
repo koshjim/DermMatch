@@ -508,6 +508,16 @@ body {
   border-bottom: 1px solid #eee;
 }
 
+.svd-section-label {
+  font-weight: 600;
+  margin: 6px 0 2px;
+  color: #555;
+}
+
+.svd-neg {
+  color: #c0392b;
+}
+
 .svd-dim-label { font-weight: 600; min-width: 50px; color: #2a6; }
 .svd-dim-contrib { min-width: 60px; color: #888; }
 .svd-dim-terms { color: #444; }

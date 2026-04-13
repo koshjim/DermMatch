@@ -237,18 +237,29 @@ function App(): JSX.Element {
                 <p className="product-description">{product.description}</p>
 
                 {/* SVD debug info */}
-                {product.top_dimensions && product.top_dimensions.length > 0 && (
-                  <div className="svd-debug">
-                    <p className="svd-title">SVD Score: {product.svd_score?.toFixed(4)} — Top Latent Dimensions</p>
-                    {product.top_dimensions.map((d, i) => (
-                      <div key={i} className="svd-dim-row">
-                        <span className="svd-dim-label">Dim {d.dim}</span>
-                        <span className="svd-dim-contrib">{d.contribution.toFixed(4)}</span>
-                        <span className="svd-dim-terms">{d.top_terms.join(', ')}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {product.top_dimensions && (
+                <div className="svd-debug">
+                  <p className="svd-title">SVD Score: {product.svd_score?.toFixed(4)}</p>
+                  
+                  <p className="svd-section-label">▲ Top 5 Dimensions</p>
+                  {product.top_dimensions.top.map((d, i) => (
+                    <div key={i} className="svd-dim-row">
+                      <span className="svd-dim-label">Dim {d.dim}</span>
+                      <span className="svd-dim-contrib">+{d.contribution.toFixed(4)}</span>
+                      <span className="svd-dim-terms">{d.top_terms.join(', ')}</span>
+                    </div>
+                  ))}
+
+                  <p className="svd-section-label">▼ Bottom 5 Dimensions</p>
+                  {product.top_dimensions.bottom.map((d, i) => (
+                    <div key={i} className="svd-dim-row">
+                      <span className="svd-dim-label">Dim {d.dim}</span>
+                      <span className="svd-dim-contrib svd-neg">{d.contribution.toFixed(4)}</span>
+                      <span className="svd-dim-terms">{d.top_terms.join(', ')}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               </details>
             )}
 
