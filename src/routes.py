@@ -365,6 +365,24 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         query_lsa = normalize(svd.transform(query_vec))
         svd_sim = cosine_similarity(query_lsa, doc_lsa).flatten()
 
+    # After svd_sim is computed, get top dimensions per product
+    def get_top_dimensions(doc_lsa_row, query_lsa_row, svd, terms, n=5):
+        # Element-wise contribution of each dimension to the similarity
+        dim_contributions = doc_lsa_row * query_lsa_row.flatten()
+        top_dims = dim_contributions.argsort()[-n:][::-1]
+        result = []
+        for dim in top_dims:
+            top_term_indices = svd.components_[dim].argsort()[-5:][::-1]
+            top_terms = [terms[i] for i in top_term_indices]
+            result.append({
+                "dim": int(dim),
+                "contribution": float(dim_contributions[dim]),
+                "top_terms": top_terms
+            })
+        return result
+
+    terms = vectorizer.get_feature_names_out()
+
     # Debug: check explained variance and category separation
     print(f"Explained variance: {svd.explained_variance_ratio_.sum():.1%}")
     terms = vectorizer.get_feature_names_out()
@@ -467,6 +485,10 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         p.good_ingredients = list(_ingredients_present(p.ingredients, query_skin_context['preferred_ingredients']))
         alignment = max(0.30, 1.0 + min(0.08 * len(preferred_hits), 0.32) - min(0.12 * len(avoided_hits), 0.48))
 
+        # After computing svd_sim, inside the for loop:
+        p.svd_score = float(svd_sim[i])
+        p.top_dimensions = get_top_dimensions(doc_lsa[i], query_lsa, svd, terms) if n_components >= 2 else []
+
         rating_boost = (p.rating or 0) / 5.0
         loves_boost  = min((p.loves_count or 0) / 10000, 1.0)
 
@@ -534,6 +556,8 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         "flagged_ingredients": p.flagged_ingredients,
         "avoided_ingredients": getattr(p, 'avoided_ingredients', []),
         "good_ingredients": getattr(p, 'good_ingredients', []),
+        "svd_score": getattr(p, 'svd_score', 0.0),
+        "top_dimensions": getattr(p, 'top_dimensions', []),
         "url": f"https://www.sephora.com/product/{p.product_id}" if p.product_id else None,
     } for s, p in results]
 

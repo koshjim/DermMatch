@@ -21,4 +21,6 @@ export interface Product {
   avoided_ingredients?: string[];
   good_ingredients: string[];
   url: string | null;
+  svd_score?: number;
+top_dimensions?: { dim: number; contribution: number; top_terms: string[] }[];
 }
