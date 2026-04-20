@@ -93,22 +93,7 @@ if brand_col and "description" in df.columns:
     jack_black_mask = df[brand_col].astype(str).str.contains(r"\bjack\s*black\b", case=False, na=False)
     df.loc[jack_black_mask, "description"] = df.loc[jack_black_mask, "description"].apply(clean_description)
 
-# Filter out perfumes + hair products
-exclude_mask = pd.Series(False, index=df.index)
-if "category" in df.columns:
-    exclude_mask |= df["category"].str.contains(r"\bperfume\b|\bhair\b", case=False, na=False)
-if "primary_category" in df.columns:
-    exclude_mask |= df["primary_category"].str.contains(r"\bperfume\b|\bhair\b", case=False, na=False)
-if "secondary_category" in df.columns:
-    exclude_mask |= df["secondary_category"].str.contains(r"\bperfume\b|\bhair\b", case=False, na=False)
-if "tertiary_category" in df.columns:
-    exclude_mask |= df["tertiary_category"].str.contains(r"\bperfume\b|\bhair\b", case=False, na=False)
-if "highlights" in df.columns:
-    exclude_mask |= df["highlights"].str.contains(r"\bAll Hair Types\b", case=False, na=False)
-
-before = len(df)
-df = df.loc[~exclude_mask].copy()
-after = len(df)
+# Keep all categories (including perfume and hair products).
 
 # Backup then overwrite
 if not os.path.exists(backup_path):

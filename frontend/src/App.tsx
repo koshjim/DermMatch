@@ -25,12 +25,49 @@ function StarRating({ rating }: { rating: number }) {
 
 function SafetyBadge({ score }: { score: number }) {
   const level = score >= 75 ? 'high' : score >= 45 ? 'medium' : 'low'
-  const label = score >= 75 ? 'Clean' : score >= 45 ? 'Moderate' : 'Caution'
+  const label = score >= 75 ? 'Clean Score' : score >= 45 ? 'Moderate Score' : 'Caution Score'
   return <span className={`safety-badge safety-${level}`}>⬤ {label} ({Math.round(score)})</span>
+}
+
+function SafetyInfo({ product }: { product: Product }) {
+  const score = Math.round(product.safety_score)
+  const flaggedIngredients = product.flagged_ingredients ?? []
+  const avoidedIngredients = product.avoided_ingredients ?? []
+
+  let scoreReason = 'This product has a lower score because more flagged chemicals were detected.'
+  if (score >= 75) {
+    scoreReason = 'This product has a high score because fewer flagged chemicals were detected.'
+  } else if (score >= 45) {
+    scoreReason = 'This score is moderate because some flagged chemicals were detected.'
+  }
+
+  return (
+    <details className="safety-info">
+      <summary className="safety-badge-toggle" aria-label={`How clean score is calculated for ${product.name}`}>
+        <SafetyBadge score={product.safety_score} />
+      </summary>
+      <div className="safety-info-panel">
+        <p className="safety-info-title">How Clean Score Works:</p>
+        <p>Each product's clean score starts at 100, then there are penalties for flagged chemicals found in its ingredient list (according to the California Proposition 65 guidelines)</p>
+        <p>Keep in mind that the quantity of each flagged ingredient isn't considered in the score calculation.</p>
+        {/* <p>Each ingredient you asked to avoid in your query subtracts an extra 10 points when present.</p> */}
+        <p className="safety-info-reason">{scoreReason}</p>
+        <p className="safety-info-stats">Flagged chemicals found: {flaggedIngredients.length}</p>
+        <p className="safety-info-stats">Avoided ingredients matched: {avoidedIngredients.length}</p>
+        {flaggedIngredients.length > 0 && (
+          <p className="safety-info-list">Flagged: {flaggedIngredients.slice(0, 5).join(', ')}{flaggedIngredients.length > 5 ? ', ...' : ''}</p>
+        )}
+        {avoidedIngredients.length > 0 && (
+          <p className="safety-info-list">Avoided matches: {avoidedIngredients.slice(0, 5).join(', ')}{avoidedIngredients.length > 5 ? ', ...' : ''}</p>
+        )}
+      </div>
+    </details>
+  )
 }
 
 function App(): JSX.Element {
   const [useLlm, setUseLlm] = useState<boolean | null>(null)
+  const [searchInput, setSearchInput] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [hasSearched, setHasSearched] = useState<boolean>(false)
   const [isSearching, setIsSearching] = useState<boolean>(false)
@@ -80,9 +117,41 @@ function App(): JSX.Element {
     }
   }
 
-  const handleSearch = async (value: string): Promise<void> => {
-    setSearchTerm(value)
-    if (value.trim()) setHasSearched(true)
+  const executeSearch = (term: string): void => {
+    const trimmed = term.trim()
+    latestRequestId.current += 1
+    setVisibleCount(24)
+
+    if (!trimmed) {
+      setSearchTerm('')
+      setIsSearching(false)
+      setProducts([])
+      return
+    }
+
+    setHasSearched(true)
+    setSearchTerm(trimmed)
+  }
+
+  const handleSearchInputChange = (value: string): void => {
+    setSearchInput(value)
+
+    if (!value.trim()) {
+      latestRequestId.current += 1
+      setSearchTerm('')
+      setIsSearching(false)
+      setVisibleCount(24)
+      setProducts([])
+    }
+  }
+
+  const handleSearchSubmit = (): void => {
+    executeSearch(searchInput)
+  }
+
+  const handleChatSearch = (value: string): void => {
+    setSearchInput(value)
+    executeSearch(value)
   }
 
   const handleFilterChange = (key: keyof Filters, value: string): void => {
@@ -93,28 +162,30 @@ function App(): JSX.Element {
   useEffect(() => {
     const trimmed = searchTerm.trim()
     if (!trimmed) {
-      latestRequestId.current += 1
-      setIsSearching(false)
-      setVisibleCount(24)
-      setProducts([])
       return
     }
 
     setVisibleCount(24)
     setIsSearching(true)
-    const timer = window.setTimeout(() => {
-      runSearch(trimmed, filters)
-    }, 350)
-
-    return () => {
-      window.clearTimeout(timer)
-    }
+    runSearch(trimmed, filters)
   }, [searchTerm, filters])
 
   if (useLlm === null) return <></>
 
   const visibleProducts = products.slice(0, visibleCount)
   const canShowMore = products.length > visibleCount
+  const exampleQueries = [
+    'face oil without titanium dioxide',
+    'toner for dry, acne-prone skin',
+    'moisturizer for eczema',
+    'cleanser with niacinamide',
+    'sunscreen safe for sensitive skin',
+  ]
+  const splitIndex = Math.ceil(exampleQueries.length / 2)
+  const exampleQueryRows = [
+    exampleQueries.slice(0, splitIndex),
+    exampleQueries.slice(splitIndex),
+  ].filter((row) => row.length > 0)
 
   return (
     <div className={`full-body-container ${useLlm ? 'llm-mode' : ''} ${hasSearched ? 'searching' : ''}`}>
@@ -127,9 +198,45 @@ function App(): JSX.Element {
           <input
             id="search-input"
             placeholder="Search for a Sephora Skincare product"
-            value={searchTerm}
-            onChange={(e) => handleSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => handleSearchInputChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                handleSearchSubmit()
+              }
+            }}
           />
+          <button
+            type="button"
+            className="search-submit-button"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleSearchSubmit()
+            }}
+          >
+            Search
+          </button>
+        </div>
+        {/* <p className="search-hint">Try a query:</p> */}
+        <div className="example-query-grid">
+          {exampleQueryRows.map((row, rowIndex) => (
+            <div key={rowIndex} className="example-query-row">
+              {row.map((query) => (
+                <button
+                  key={query}
+                  type="button"
+                  className="example-query-pill"
+                  onClick={() => {
+                    setSearchInput(query)
+                    executeSearch(query)
+                  }}
+                >
+                  {query}
+                </button>
+              ))}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -180,8 +287,8 @@ function App(): JSX.Element {
 
                 <div className="brand-safety-row">
                   <p className="product-brand">{product.brand}</p>
-                  <div style={{ flexShrink: 0 }}>
-                    <SafetyBadge score={product.safety_score} />
+                  <div className="safety-score-group">
+                    <SafetyInfo product={product} />
                   </div>
                 </div>
 
@@ -271,7 +378,7 @@ function App(): JSX.Element {
             )} */}
 
             <div className="match-score-wrapper">
-              <p className="match-score-label">Match: {product.score.toFixed(1)}%</p>
+              <p className="match-score-label">Match Score: {product.score.toFixed(1)}%</p>
             </div>
           </div>
         ))}
@@ -288,7 +395,7 @@ function App(): JSX.Element {
       </div>
 
       {/* Chat (only when USE_LLM = True in routes.py) */}
-      {useLlm && <Chat onSearchTerm={handleSearch} />}
+      {useLlm && <Chat onSearchTerm={handleChatSearch} />}
     </div>
   )
 }

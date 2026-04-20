@@ -85,6 +85,25 @@ def tokenize_and_stem(text):
     return [stem_search_word(token) for token in normalized.split() if token]
 
 
+def phrase_tokens_match(query_text, phrase_text):
+    """Return True when phrase appears in query after normalization/stemming.
+
+    This makes phrase matching tolerant to simple singular/plural and minor
+    inflection differences (e.g., "face oils" matches keyword "face oil").
+    """
+    query_tokens = tokenize_and_stem(query_text)
+    phrase_tokens = tokenize_and_stem(phrase_text)
+    if not query_tokens or not phrase_tokens or len(phrase_tokens) > len(query_tokens):
+        return False
+
+    window_size = len(phrase_tokens)
+    for start in range(len(query_tokens) - window_size + 1):
+        window = query_tokens[start:start + window_size]
+        if all(words_match(phrase_tokens[i], window[i]) for i in range(window_size)):
+            return True
+    return False
+
+
 def levenshtein_distance(left, right):
     left = left or ""
     right = right or ""
@@ -188,18 +207,38 @@ def _ingredients_present(ingredients_text, candidates):
     if not ingredients_text or not candidates:
         return set()
     ingredients_norm = normalize_search_text(ingredients_text)
-    return {term for term in candidates if normalize_search_text(term) and normalize_search_text(term) in ingredients_norm}
+
+    ingredient_aliases = {
+        'titanium dioxide': ['ci 77891'],
+    }
+
+    hits = set()
+    for term in candidates:
+        term_norm = normalize_search_text(term)
+        if not term_norm:
+            continue
+
+        if term_norm in ingredients_norm:
+            hits.add(term)
+            continue
+
+        aliases = ingredient_aliases.get(term_norm, [])
+        if any(normalize_search_text(alias) in ingredients_norm for alias in aliases):
+            hits.add(term)
+
+    return hits
 
 CATEGORY_KEYWORDS = {
     'cleanser':    ['cleanser', 'cleanse', 'face wash', 'foaming wash', 'facewash'],
     'moisturizer': ['moisturizer', 'moisturize', 'moisturiser', 'lotion', 'cream', 'hydrator'],
     'serum':       ['serum', 'essence', 'ampoule', 'treatment'],
     'toner':       ['toner', 'tonic', 'mist'],
-    'mask':        ['mask', 'masque', 'peel'],
+    'mask':        ['mask', 'masque'],
     'sunscreen':   ['sunscreen', 'spf', 'sunblock'],
     'eye cream':   ['eye cream', 'eye gel', 'eye serum'],
     'oil':         ['face oil', 'facial oil'],
-    'exfoliator':  ['exfoliator', 'scrub', 'exfoliant'],
+    'facial peels': ['peel pad', 'facial peel', 'daily peel'],
+    'exfoliator':  ['exfoliator', 'scrub', 'exfoliant', 'peel'],
     'foundation':  ['foundation'],
     'concealer':   ['concealer'],
     'primer':      ['primer'],
@@ -208,9 +247,11 @@ CATEGORY_KEYWORDS = {
     'mascara':     ['mascara'],
     'eyeliner':    ['eyeliner'],
     'eyeshadow':   ['eyeshadow'],
-    'lipstick':    ['lipstick'],
+    'lipstick':    ['lipstick', 'lip gloss', 'lip balm'],
     'palette':     ['palette'],
-    'brow':        ['brow'],
+    'brow':        ['brow', 'eyebrow', 'eyebrow pencil', 'eyebrow gel'],
+    'hair':       ['shampoo', 'conditioner', 'hair mask', 'hair oil', 'hair treatment'],
+    'perfume':     ['perfume', 'fragrance', 'eau de parfum', 'eau de toilette', 'cologne', 'scent'],
 }
 
 def parse_query_skin_context(query):
@@ -239,27 +280,56 @@ def parse_query_skin_context(query):
             elif wants_prefer:
                 preferred_ingredients.add(term)
 
+    # Also support explicit free-form avoid phrases that may not exist in the
+    # skin-condition rules file, e.g., "without titanium dioxide".
+    if wants_avoid:
+        for marker in avoid_markers:
+            if marker not in normalized_query:
+                continue
+
+            tail = normalized_query.split(marker, 1)[1]
+            tail = re.split(r'\b(?:for|good for|best for|with|that|which|because)\b', tail, maxsplit=1)[0]
+            candidates = re.split(r',|\band\b|\bor\b|/|\bbut\b', tail)
+
+            for candidate in candidates:
+                phrase = normalize_search_text(candidate)
+                phrase = re.sub(r'^(?:any|all|the|a|an)\s+', '', phrase).strip()
+                phrase = re.sub(r'\s+(?:ingredient|ingredients)$', '', phrase).strip()
+                if phrase and len(phrase) >= 3:
+                    avoided_ingredients.add(phrase)
+
     # Pull condition-based ingredient guidance
     for condition in detected_conditions:
         preferred_ingredients.update(rules['condition_rules'].get(condition, {}).get('good', set()))
         avoided_ingredients.update(rules['condition_rules'].get(condition, {}).get('bad', set()))
 
-    # Detect category using CATEGORY_KEYWORDS (with fuzzy matching via levenshtein)
+    # Detect category by checking specific multi-word phrases first, then fallback to
+    # single-word fuzzy matching. This prevents generic terms like "cream" from
+    # overriding more specific intents such as "eye cream".
     detected_category = None
     query_words = normalized_query.split()
+
+    phrase_matches = []
     for cat, keywords in CATEGORY_KEYWORDS.items():
         for kw in keywords:
-            kw_words = kw.split()
-            # Multi-word keyword: check phrase presence
-            if len(kw_words) > 1:
-                if re.search(rf'\b{re.escape(kw)}\b', normalized_query):
+            kw_norm = normalize_search_text(kw)
+            if " " in kw_norm and phrase_tokens_match(normalized_query, kw_norm):
+                phrase_matches.append((len(kw_norm.split()), cat))
+
+    if phrase_matches:
+        phrase_matches.sort(key=lambda item: item[0], reverse=True)
+        detected_category = phrase_matches[0][1]
+    else:
+        for cat, keywords in CATEGORY_KEYWORDS.items():
+            for kw in keywords:
+                kw_norm = normalize_search_text(kw)
+                if " " in kw_norm:
+                    continue
+                if any(levenshtein_distance(w, kw_norm) <= 1 and len(w) >= len(kw_norm) - 1 for w in query_words):
                     detected_category = cat
                     break
-            elif any(levenshtein_distance(w, kw) <= 1 and len(w) >= len(kw) - 1 for w in query_words):
-                detected_category = cat
+            if detected_category:
                 break
-        if detected_category:
-            break
 
     # Detect if query is purely a category with no other attributes
     residual = normalized_query
@@ -299,6 +369,12 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     query_skin_context = parse_query_skin_context(query)
     query_category     = query_skin_context['detected_category']
     pure_category_query = query_skin_context['pure_category_query']
+    explicit_category_intent = bool(
+        query_category and any(
+            phrase_tokens_match(normalized_query, kw)
+            for kw in CATEGORY_KEYWORDS.get(query_category, [])
+        )
+    )
 
     expansion_terms = sorted(query_skin_context['detected_conditions'])
     expanded_query  = " ".join([normalized_query] + expansion_terms).strip()
@@ -318,9 +394,6 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     MIN_SVD_SIMILARITY = 0.02 if is_partial_query else 0.1
 
     products = Product.query.all()
-    products = [p for p in products
-        if (p.category or '').lower() != 'perfume'
-        and 'All Hair Types' not in (p.highlights or '')]
 
     chem_freq = get_chemical_frequency()
     max_chem_freq = max((freq for _, freq in chem_freq), default=1)
@@ -405,6 +478,11 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         product_category_text = f"{p.primary_category or ''} {p.secondary_category or ''} {p.category or ''}".lower()
         category_match = bool(query_category and query_category in product_category_text)
 
+        if explicit_category_intent and not category_match:
+            # If user explicitly asked for a category (e.g., "cleanser with niacinamide"),
+            # exclude products outside that category rather than merely downranking them.
+            continue
+
         if pure_category_query:
             # Drop non-matching categories; all matches start equal, ranked by quality
             if not category_match:
@@ -472,6 +550,9 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         # p.safety_score = safety_score
         
         avoided_hits = _ingredients_present(p.ingredients, query_skin_context['avoided_ingredients'])
+        if query_skin_context['avoided_ingredients'] and avoided_hits:
+            # Hard exclude products containing ingredients the query asks to avoid.
+            continue
         
         ingredients_lower = (p.ingredients or '').lower()
 
