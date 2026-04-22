@@ -159,6 +159,10 @@ def init_db():
 
             db.session.commit()
             print("Database initialized with products CSV data")
+            
+        from routes import build_search_index
+        build_search_index()
+        print("Search index built successfully")
 
 
 init_db()
