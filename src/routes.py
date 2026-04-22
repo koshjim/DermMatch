@@ -397,6 +397,12 @@ def build_search_index():
 
     corpus = [" ".join(tokenize_and_stem(_product_svd_text(p))) for p in products]
 
+    for i, (p, c) in enumerate(zip(products[:3], corpus[:3])):
+        print(f"Product: {p.product_name}")
+        print(f"Raw text: {_product_svd_text(p)[:100]}")
+        print(f"Stemmed corpus: {c[:100]}")
+        print("---")
+
     vectorizer = TfidfVectorizer(
         stop_words='english',
         min_df=1,
