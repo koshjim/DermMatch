@@ -258,6 +258,18 @@ CATEGORY_KEYWORDS = {
     'perfume':     ['perfume', 'fragrance', 'eau de parfum', 'eau de toilette', 'cologne', 'scent'],
 }
 
+def fuzzy_expand_token(token, vocab, max_distance=2):
+    """Return vocab terms that fuzzy-match a token not found in vocab."""
+    if token in vocab:
+        return [token]
+    matches = []
+    for v in vocab:
+        if abs(len(v) - len(token)) > max_distance:
+            continue
+        if levenshtein_distance(token, v) <= max_distance:
+            matches.append(v)
+    return matches
+
 def parse_query_skin_context(query):
     rules = load_skin_condition_rules()
     normalized_query = normalize_search_text(query)
@@ -418,6 +430,15 @@ def build_search_index():
     tfidf_matrix = vectorizer.fit_transform(corpus)
     terms = vectorizer.get_feature_names_out()
 
+    # Build inverted index: term → [product indices]
+    inverted_index = {}
+    cx = tfidf_matrix.tocsr()
+    for term, col_idx in vectorizer.vocabulary_.items():
+        col = cx.getcol(col_idx)
+        doc_indices = col.nonzero()[0].tolist()
+        if doc_indices:
+            inverted_index[term] = doc_indices
+
     n_components = min(tfidf_matrix.shape[0] - 1, tfidf_matrix.shape[1] - 1, 100)
 
     svd = None
@@ -435,6 +456,7 @@ def build_search_index():
         'doc_lsa':      doc_lsa,
         'terms':        terms,
         'n_components': n_components,
+        'inverted_index': inverted_index,
     }
 
     return _search_index
@@ -617,6 +639,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     doc_lsa      = idx['doc_lsa']
     terms        = idx['terms']
     n_components = idx['n_components']
+    inverted_index = idx['inverted_index']
 
     # parse query
     normalized_query    = normalize_search_text(query)
@@ -661,12 +684,37 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
 
     vocab = vectorizer.vocabulary_
     expanded_query_tokens = []
+    
     for token in query_tokens:
         if token in avoided_tokens:
             continue
-        expanded_query_tokens.append(token)
-        if len(token) >= 4:
+        if token in vocab:
+            expanded_query_tokens.append(token)
+            # also grab prefix matches
             expanded_query_tokens.extend(v for v in vocab if v.startswith(token) and v != token)
+        else:
+            # token is OOV (e.g. a typo) — fuzzy match it into the vocab
+            fuzzy_matches = fuzzy_expand_token(token, vocab)
+            expanded_query_tokens.extend(fuzzy_matches)
+    
+    # OLD QUERY EXPANSION (WITHOUT FUZZY)
+    # expanded_query_tokens = []
+    # for token in query_tokens:
+    #     if token in avoided_tokens:
+    #         continue
+    #     expanded_query_tokens.append(token)
+    #     if len(token) >= 4:
+    #         expanded_query_tokens.extend(v for v in vocab if v.startswith(token) and v != token)
+
+    # Look up candidate product indices from inverted index
+    candidate_indices = set()
+    for token in expanded_query_tokens:
+        if token in inverted_index:
+            candidate_indices.update(inverted_index[token])
+
+    # Fall back to all products for very short/unmatched queries
+    if not candidate_indices:
+        candidate_indices = set(range(len(products)))
 
     query_vec = vectorizer.transform([" ".join(expanded_query_tokens)])
 
@@ -721,6 +769,9 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     for i, p in enumerate(products):
         product_category_text = f"{p.primary_category or ''} {p.secondary_category or ''} {p.category or ''}".lower()
         category_match = bool(query_category and query_category in product_category_text)
+
+        if i not in candidate_indices:
+            continue
 
         if explicit_category_intent and not category_match:
             continue
