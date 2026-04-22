@@ -396,16 +396,6 @@ def build_search_index():
     products = Product.query.all()
 
     corpus = [" ".join(tokenize_and_stem(_product_svd_text(p))) for p in products]
-    
-    # corpus = []
-    # for p in products:
-    #     raw_text = _product_svd_text(p) or ""
-    #     tokens = tokenize_and_stem(raw_text)
-    #     if tokens:
-    #         corpus.append(" ".join(tokens))
-
-    if not corpus:
-        raise ValueError("Corpus is empty — cannot build search index")
 
     vectorizer = TfidfVectorizer(
         stop_words='english',
@@ -413,20 +403,6 @@ def build_search_index():
         max_df=0.98,
         ngram_range=(1, 2),
     )
-
-    # vectorizer = TfidfVectorizer(
-    #     stop_words='english',
-    #     min_df=1,
-    #     max_df=0.98,
-    #     ngram_range=(1, 2),
-    # )
-
-    # DEBUG
-    # print("NUM PRODUCTS:", len(products))
-    # print("RAW SAMPLE:", [_product_svd_text(p) for p in products[:3]])
-    # print("TOKEN SAMPLE:", [tokenize_and_stem(_product_svd_text(p)) for p in products[:3]])
-    # print("CORPUS SAMPLE:", corpus[:3])
-
     tfidf_matrix = vectorizer.fit_transform(corpus)
     terms = vectorizer.get_feature_names_out()
 
@@ -519,7 +495,7 @@ def rag_expand_query(query):
     if not raw_query or not USE_LLM:
         return raw_query
 
-    api_key = os.getenv("SPARK_API_KEY")
+    api_key = os.getenv("API_KEY")
     if not api_key:
         return raw_query
 
@@ -857,7 +833,6 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     if max_score > 0:
         results = [(s / max_score * 100, p) for s, p in results]
 
-
     if category:
         results = [(s, p) for s, p in results if category.lower() in {
             (p.primary_category or '').lower(),
@@ -934,10 +909,10 @@ def register_routes(app):
             if parent:
                 parent_counts[parent] = parent_counts.get(parent, 0) + 1
 
-        all_categories = sorted(parent_counts, key=lambda k: parent_counts[k], reverse=True)
+        top5 = sorted(parent_counts, key=lambda k: parent_counts[k], reverse=True)[:5]
 
         # print(sorted(parent_counts.items(), key=lambda k: k[1], reverse=True))
-        return jsonify(all_categories)
+        return jsonify(top5)
 
     @app.route("/api/products/search")
     def search_products():
@@ -973,81 +948,6 @@ def register_routes(app):
     def get_score_name():
         return jsonify({'Similarity Score': score_name})
 
-    @app.route("/api/products/summary")
-    def products_summary():
-        q = request.args.get("q", "").strip()
-        if not q or not USE_LLM:
-            return jsonify({"summary": "", "sources": [], "total_results": 0, "used_llm": False})
-
-        api_key = os.getenv("SPARK_API_KEY")
-        if not api_key:
-            return jsonify({"summary": "", "sources": [], "total_results": 0, "used_llm": False})
-
-        category = request.args.get("category", "")
-        min_price = request.args.get("min_price", type=float)
-        max_price = request.args.get("max_price", type=float)
-        min_rating = request.args.get("min_rating", type=float)
-        sort_by = request.args.get("sort_by", "relevance")
-
-        expanded_q = rag_expand_query(q)
-        results = ranked_product_search(
-            expanded_q,
-            category=category,
-            min_price=min_price,
-            max_price=max_price,
-            min_rating=min_rating,
-            sort_by=sort_by,
-        )
-
-        top = results[:5]
-        if not top:
-            return jsonify({"summary": "", "sources": [], "total_results": 0, "used_llm": True})
-
-        context = "\n\n".join(
-            f"Product: {p['name']} by {p['brand']}\n"
-            f"Rating: {p['rating']}\nPrice: ${p['price']}\n"
-            f"Safety Score: {p.get('safety_score', 'N/A')}\n"
-            f"Flagged Ingredients: {', '.join(p.get('flagged_ingredients') or []) or 'None'}\n"
-            f"Good Ingredients: {', '.join(p.get('good_ingredients') or []) or 'None'}\n"
-            f"Description: {(p['description'] or '')[:300]}"
-            for p in top
-        )
-
-        try:
-            from infosci_spark_client import LLMClient
-            client = LLMClient(api_key=api_key)
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a skincare expert. Given a user's search query and the top matching products, "
-                        "write a 2-3 sentence overview summarizing what kinds of products were found and why they "
-                        "might be relevant. Be concise and helpful. Do not list products by name individually."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"Search query: {q}\n\nTop results:\n{context}",
-                },
-            ]
-            response = client.chat(messages)
-            summary = (response.get("content") or "").strip()
-        except Exception as exc:
-            logger.warning("AI summary failed: %s", exc)
-            return jsonify({"summary": "", "sources": [], "total_results": len(results), "used_llm": True})
-
-        sources = [
-            {"id": p.get("id"), "name": p["name"], "brand": p["brand"], "url": p.get("url")}
-            for p in top
-        ]
-
-        return jsonify({
-            "summary": summary,
-            "sources": sources,
-            "total_results": len(results),
-            "used_llm": True,
-        })
-
     if USE_LLM:
         from llm_routes import register_chat_route
-        register_chat_route(app, lambda q: ranked_product_search(q))
+        register_chat_route(app, json_search)

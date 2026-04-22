@@ -341,13 +341,6 @@ body {
   font-weight: 600;
 }
 
-.refining-badge {
-  font-size: 13px;
-  font-weight: 400;
-  color: #8fa68f;
-  font-style: italic;
-}
-
 .did-you-mean-copy {
   color: #7a847d;
   font-weight: 500;
@@ -394,7 +387,7 @@ body {
   gap: 8px;
   margin-bottom: 6px;
   font-weight: 600;
-  color: #3A6B4A;
+  color: #6B7A6B;
 }
 
 .ai-summary-text,
