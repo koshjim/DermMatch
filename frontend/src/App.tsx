@@ -44,6 +44,40 @@ const QUERY_DICTIONARY = [
   'dry',
   'skin',
 ]
+const CATEGORY_MAP: Record<string, string> = {
+  'face wash facial cleanser': 'Cleansers',
+  'cleansing oil face oil': 'Cleansing Oils',
+  'body lotion body oil': 'Moisturizers',
+  'face creams': 'Moisturizers',
+  'facial toner skin toner':'Toners',
+  'eye cream dark circles': 'Eye Creams',
+  'facial peels': 'Exfoliators',
+  'exfoliating scrub exfoliator': 'Exfoliators',
+  'facial treatment masks':'Masks',
+  'sheet masks': 'Masks',
+  'face serum': 'Serums',
+  'face sunscreen':'Sunscreens',
+  'lip balm lip care': 'Lip Treatments',
+  'mini skincare': 'Mini Skincare'
+}
+
+function normalizeCategory(raw: string): string {
+  return CATEGORY_MAP[raw.trim().toLowerCase()] ?? raw
+}
+ 
+const CANONICAL_CATEGORIES = [
+  'Cleansers',
+  'Cleansing Oils',
+  'Moisturizers',
+  'Toners',
+  'Eye Creams',
+  'Exfoliators',
+  'Masks',
+  'Serums',
+  'Sunscreens',
+  'Lip Treatments',
+  'Mini Skincare'
+]
 
 function levenshteinDistance(left: string, right: string): number {
   if (left === right) return 0
@@ -161,6 +195,7 @@ function App(): JSX.Element {
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [hasSearched, setHasSearched] = useState<boolean>(false)
   const [isSearching, setIsSearching] = useState<boolean>(false)
+  const [isRefining, setIsRefining] = useState<boolean>(false)
   const [visibleCount, setVisibleCount] = useState<number>(24)
   const [products, setProducts] = useState<Product[]>([])
   const [summaryText, setSummaryText] = useState<string>('')
@@ -171,9 +206,22 @@ function App(): JSX.Element {
   const [filters, setFilters] = useState<Filters>({ category: '', minPrice: '', maxPrice: '', minRating: '', sortBy: 'relevance' })
   const latestRequestId = useRef<number>(0)
 
+  
+  // useEffect(() => {
+  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
+  //   fetch('/api/categories').then(r => r.json()).then(setCategories)
+  // }, [])
+
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
-    fetch('/api/categories').then(r => r.json()).then(setCategories)
+    fetch('/api/categories').then(r => r.json()).then((raw: string[]) => {
+      // Normalize and deduplicate API categories, then merge with canonical list
+      const normalized = Array.from(new Set(raw.map(normalizeCategory)))
+      const canonical = new Set(CANONICAL_CATEGORIES)
+      // Put canonical categories first, then any extras from the API not in canonical
+      const extras = normalized.filter(c => !canonical.has(c))
+      setCategories([...CANONICAL_CATEGORIES, ...extras])
+    })
   }, [])
 
   const runSearch = async (term: string, currentFilters: Filters): Promise<void> => {
@@ -186,7 +234,10 @@ function App(): JSX.Element {
 
     const requestId = ++latestRequestId.current
     const params = new URLSearchParams({ q: trimmed })
-    if (currentFilters.category) params.set('category', currentFilters.category)
+    if (currentFilters.category) {
+      const rawValue = Object.entries(CATEGORY_MAP).find(([, label]) => label === currentFilters.category)?.[0]
+      params.set('category', rawValue ?? currentFilters.category)
+    }
     if (currentFilters.minPrice) params.set('min_price', currentFilters.minPrice)
     if (currentFilters.maxPrice) params.set('max_price', currentFilters.maxPrice)
     if (currentFilters.minRating) params.set('min_rating', currentFilters.minRating)
@@ -228,15 +279,33 @@ function App(): JSX.Element {
     }
 
     try {
-      const response = await fetch(`/api/products/search?${params}`)
-      if (!response.ok) {
-        throw new Error(`Search request failed with status ${response.status}`)
+      // Phase 1: instant results without LLM query expansion
+      const fastParams = new URLSearchParams(params)
+      fastParams.set('use_rag', 'false')
+      const fastResponse = await fetch(`/api/products/search?${fastParams}`)
+      if (!fastResponse.ok) throw new Error(`Search failed: ${fastResponse.status}`)
+      const fastData: Product[] = await fastResponse.json()
+      if (requestId !== latestRequestId.current) return
+      setProducts(fastData)
+      setIsSearching(false)
+
+      // Phase 2: silently refine with LLM-expanded query in background
+      if (useLlm) {
+        setIsRefining(true)
+        void (async () => {
+          try {
+            const ragResponse = await fetch(`/api/products/search?${params}`)
+            if (ragResponse.ok) {
+              const ragData: Product[] = await ragResponse.json()
+              if (requestId === latestRequestId.current) setProducts(ragData)
+            }
+          } finally {
+            if (requestId === latestRequestId.current) setIsRefining(false)
+          }
+        })()
       }
-      const data: Product[] = await response.json()
-      if (requestId === latestRequestId.current) {
-        setProducts(data)
-        void runSummary()
-      }
+
+      void runSummary()
     } catch {
       if (requestId === latestRequestId.current) {
         setProducts([])
@@ -244,9 +313,6 @@ function App(): JSX.Element {
         setSummarySources([])
         setSummaryError('')
         setIsSummaryLoading(false)
-      }
-    } finally {
-      if (requestId === latestRequestId.current) {
         setIsSearching(false)
       }
     }
@@ -454,6 +520,7 @@ function App(): JSX.Element {
         {searchTerm.trim() && !isSearching && products.length > 0 && (
           <p className="result-count">
             {products.length} result{products.length !== 1 ? 's' : ''} for "{searchTerm}".
+            {isRefining && <span className="refining-badge"> Refining with AI…</span>}
             {didYouMean && (
               <>
                 {' '}
@@ -532,7 +599,7 @@ function App(): JSX.Element {
 
             {/* Unified pill row */}
             <div className="pill-row">
-              <span className="badge badge-category">{product.category}</span>
+              <span className="badge badge-category">{normalizeCategory(product.category)}</span>
 
               {/* Ingredient signals row */}
               {((product.good_ingredients?.length ?? 0) > 0 || (product.avoided_ingredients?.length ?? 0) > 0) && (
