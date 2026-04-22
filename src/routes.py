@@ -18,8 +18,8 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.preprocessing import normalize
 
 # ── AI toggle ────────────────────────────────────────────────────────────────
-# USE_LLM = False
-USE_LLM = True
+USE_LLM = False
+# USE_LLM = True
 # ─────────────────────────────────────────────────────────────────────────────
 
 def clean_product_description(text):
@@ -662,7 +662,6 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
 
 def register_routes(app):
     @app.route('/', defaults={'path': ''})
-    
     @app.route('/<path:path>')
     def serve(path):
         if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
@@ -673,8 +672,6 @@ def register_routes(app):
     @app.route("/api/config")
     def config():
         return jsonify({"use_llm": USE_LLM})
-    # Transform query with LLM first and the put into Rocchio
-    # put RAG query extension, RAG chatbot and RAG summary here
     
     @app.route("/api/categories")
     def get_categories():
