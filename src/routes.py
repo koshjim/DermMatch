@@ -271,12 +271,12 @@ def parse_query_skin_context(query):
     wants_avoid  = any(m in normalized_query for m in avoid_markers)
     wants_prefer = not wants_avoid and any(m in normalized_query for m in prefer_markers)
 
-    preferred_ingredients, avoided_ingredients = set(), set()
+    preferred_ingredients, avoided_ingredients = set(), [set(),set()] ## for avoided ingredients, have one set for direct mentions and one for indirect mentions via skin conditions.
     for term in rules['all_good_terms'] | rules['all_bad_terms']:
         term_norm = normalize_search_text(term)
         if term_norm and re.search(rf'\b{re.escape(term_norm)}\b', normalized_query):
             if wants_avoid:
-                avoided_ingredients.add(term)
+                avoided_ingredients[0].add(term) #corresponds to direct mentions in query
             elif wants_prefer:
                 preferred_ingredients.add(term)
 
@@ -296,12 +296,12 @@ def parse_query_skin_context(query):
                 phrase = re.sub(r'^(?:any|all|the|a|an)\s+', '', phrase).strip()
                 phrase = re.sub(r'\s+(?:ingredient|ingredients)$', '', phrase).strip()
                 if phrase and len(phrase) >= 3:
-                    avoided_ingredients.add(phrase)
+                    avoided_ingredients[0].add(phrase)
 
     # Pull condition-based ingredient guidance
     for condition in detected_conditions:
         preferred_ingredients.update(rules['condition_rules'].get(condition, {}).get('good', set()))
-        avoided_ingredients.update(rules['condition_rules'].get(condition, {}).get('bad', set()))
+        avoided_ingredients[1].update(rules['condition_rules'].get(condition, {}).get('bad', set())) ##skin condition specific avoidances
 
     # Detect category by checking specific multi-word phrases first, then fallback to
     # single-word fuzzy matching. This prevents generic terms like "cream" from
@@ -365,9 +365,20 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     if not query or not query.strip():
         return []
 
-    normalized_query = normalize_search_text(query)
-    query_skin_context = parse_query_skin_context(query)
-    query_category     = query_skin_context['detected_category']
+    #use pre-computed search index
+    idx          = _get_search_index()
+    products     = idx['products']
+    vectorizer   = idx['vectorizer']
+    tfidf_matrix = idx['tfidf_matrix']
+    svd          = idx['svd']
+    doc_lsa      = idx['doc_lsa']
+    terms        = idx['terms']
+    n_components = idx['n_components']
+
+    # parse query
+    normalized_query    = normalize_search_text(query)
+    query_skin_context  = parse_query_skin_context(query)
+    query_category      = query_skin_context['detected_category']
     pure_category_query = query_skin_context['pure_category_query']
     explicit_category_intent = bool(
         query_category and any(
@@ -376,20 +387,27 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         )
     )
 
-    expansion_terms = sorted(query_skin_context['detected_conditions'])
-    expanded_query  = " ".join([normalized_query] + expansion_terms).strip()
+    query_skin_context = parse_query_skin_context(query)
+    explicit_avoided  = query_skin_context['avoided_ingredients'][0]
+    condition_avoided = query_skin_context['avoided_ingredients'][1]
+
+    # print('=== FULL DEBUG ===')
+    # print('1. avoided_ingredients:', query_skin_context['avoided_ingredients'])
+
+    # p_retinol = next((p for p in products if 'retinol' in (p.product_name or '').lower()), None)
+    # if p_retinol:
+    #     print('2. raw ingredients:', repr(p_retinol.ingredients[:200]))
+    #     print('3. retinol in ingredients:', 'retinol' in (p_retinol.ingredients or '').lower())
+    #     print('4. _ingredients_present:', _ingredients_present(p_retinol.ingredients, query_skin_context['avoided_ingredients']))
+
+    expansion_terms  = sorted(query_skin_context['detected_conditions'])
+    expanded_query   = " ".join([normalized_query] + expansion_terms).strip()
     raw_query_tokens = tokenize_and_stem(normalized_query)
     query_tokens     = tokenize_and_stem(expanded_query)
 
-    # MIN_MATCH_SCORE = 0.1
-    # MIN_BASE_SIMILARITY = 0.2
-    # MIN_TFIDF_SIMILARITY = 0.01
-    # MIN_SVD_SIMILARITY = 0.1
-    
-    MIN_MATCH_SCORE = 0.1
-    # Lower thresholds for short/partial queries (likely incomplete input)
-    is_partial_query = len(normalized_query.split()) == 1 and len(normalized_query) <= 6
-    MIN_BASE_SIMILARITY = 0.05 if is_partial_query else 0.2
+    is_partial_query     = len(normalized_query.split()) == 1 and len(normalized_query) <= 6
+    MIN_MATCH_SCORE      = 0.1
+    MIN_BASE_SIMILARITY  = 0.05  if is_partial_query else 0.2
     MIN_TFIDF_SIMILARITY = 0.001 if is_partial_query else 0.01
     MIN_SVD_SIMILARITY = 0.02 if is_partial_query else 0.1
 
@@ -417,7 +435,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
 
     # Build set of stemmed tokens to suppress from query (avoided ingredients only)
     avoided_tokens = set()
-    for term in query_skin_context['avoided_ingredients']:
+    for term in explicit_avoided | condition_avoided:
         avoided_tokens.update(tokenize_and_stem(term))
 
     vocab = vectorizer.vocabulary_
@@ -483,6 +501,17 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
             # exclude products outside that category rather than merely downranking them.
             continue
 
+        # ── Hard exclude products containing avoided ingredients ──
+        explicit_hits  = _ingredients_present(p.ingredients, explicit_avoided)
+        if explicit_avoided and explicit_hits:
+            continue  # hard exclude — user said "without X"
+
+        condition_hits = _ingredients_present(p.ingredients, condition_avoided)
+        avoided_hits   = explicit_hits | condition_hits  # used for scoring/display below
+
+        if query_skin_context['avoided_ingredients'] and avoided_hits:
+            continue # hard exclude — even if user didn't explicitly say "without" but best for their skin condition"
+
         if pure_category_query:
             # Drop non-matching categories; all matches start equal, ranked by quality
             if not category_match:
@@ -492,10 +521,8 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
             base_score = similarities[i]
             if tfidf_sim[i] < MIN_TFIDF_SIMILARITY and svd_sim[i] < MIN_SVD_SIMILARITY:
                 continue
-
             if query_category:
                 base_score *= 1.6 if category_match else 0.15
-
             if base_score < MIN_BASE_SIMILARITY:
                 continue
 
@@ -522,6 +549,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
             if normalized_query in normalize_search_text(f"{p.product_name or ''} {p.brand_name or ''}"):
                 base_score += 0.05
 
+<<<<<<< HEAD
         # Safety score Old Version (chemical frequency deductions only):
         # safety_score = max(0.0, 100.0 - sum(
         #     (freq / max_chem_freq) * 10 for name, freq in chem_freq if name in (p.ingredients or '')
@@ -554,6 +582,8 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
             # Hard exclude products containing ingredients the query asks to avoid.
             continue
         
+=======
+>>>>>>> 7fcd7a6 (Merge pull request #23 from koshjim/stephanie)
         ingredients_lower = (p.ingredients or '').lower()
 
         safety_score = max(0.0, 100.0 - sum((freq / max_chem_freq) * 2000 for name, freq in chem_freq if name.lower() in ingredients_lower) - len(avoided_hits) * 10)
@@ -581,7 +611,11 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         else:
             quality_add = 0.02 * rating_boost + 0.02 * loves_boost + 0.5 * (safety_score / 100.0)
 
+<<<<<<< HEAD
         ingredient_add = (alignment - 1.0) * 0.15  # Max 15% boost for perfect alignment, up to 15% penalty for misalignment
+=======
+        ingredient_add = (alignment - 1.0) * 0.15
+>>>>>>> 7fcd7a6 (Merge pull request #23 from koshjim/stephanie)
         results.append((base_score + quality_add + ingredient_add, p))
 
     if not results:
