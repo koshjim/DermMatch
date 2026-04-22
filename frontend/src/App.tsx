@@ -357,14 +357,14 @@ function App(): JSX.Element {
                     </div>
                   ))}
 
-                  {/* <p className="svd-section-label">▼ Bottom 5 Dimensions</p>
+                  <p className="svd-section-label">▼ Bottom 5 Dimensions</p>
                   {product.top_dimensions.bottom.map((d, i) => (
                     <div key={i} className="svd-dim-row">
                       <span className="svd-neg">Dim {d.dim}</span>
                       <span className="svd-dim-contrib svd-neg">{d.contribution.toFixed(4)}</span>
                       <span className="svd-dim-terms">{d.top_terms.join(', ')}</span>
                     </div>
-                  ))} */}
+                  ))}
                 </div>
               )}
               </details>
