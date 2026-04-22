@@ -22,6 +22,9 @@ def clean_description(val):
         return ""
     s = str(val)
 
+    # Preserve pH so the lowercase/uppercase split rule does not turn it into "p H".
+    s = re.sub(r"(?i)\bpH\b", "__PH__", s)
+
     # Replace hyphens connecting words with spaces.
     s = re.sub(r"(?<=\w)-(?=\w)", " ", s)
 
@@ -35,6 +38,9 @@ def clean_description(val):
     # Fix missing spaces between lower->upper and after punctuation
     s = re.sub(r"([a-z])([A-Z])", r"\1 \2", s)
     s = re.sub(r"(?<=[.!?])(?=[A-Za-z])", " ", s)
+
+    # Restore pH after spacing cleanup.
+    s = s.replace("__PH__", "pH")
 
     # Normalize whitespace
     s = re.sub(r"\s+", " ", s).strip()
