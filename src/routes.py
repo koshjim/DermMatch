@@ -269,7 +269,7 @@ def parse_query_skin_context(query):
     avoid_markers  = ('without ', 'avoid ', 'no ', 'free of ', 'exclude ', 'not ')
 
     wants_avoid  = any(m in normalized_query for m in avoid_markers)
-    wants_prefer = not wants_avoid or any(m in normalized_query for m in prefer_markers)
+    wants_prefer = not wants_avoid and any(m in normalized_query for m in prefer_markers)
 
     preferred_ingredients, avoided_ingredients = set(), set()
     for term in rules['all_good_terms'] | rules['all_bad_terms']:
@@ -439,7 +439,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     if p_test:
         print(repr(p_test.ingredients[:300]))
         print(parse_query_skin_context('retinol moisturizer')['preferred_ingredients'])
-
+        
     # parse query
     normalized_query    = normalize_search_text(query)
     query_skin_context  = parse_query_skin_context(query)
@@ -452,21 +452,10 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         )
     )
 
-    query_skin_context = parse_query_skin_context(query)
-
-    print('=== FULL DEBUG ===')
-    print('1. avoided_ingredients:', query_skin_context['avoided_ingredients'])
-
-    p_retinol = next((p for p in products if 'retinol' in (p.product_name or '').lower()), None)
-    if p_retinol:
-        print('2. raw ingredients:', repr(p_retinol.ingredients[:200]))
-        print('3. retinol in ingredients:', 'retinol' in (p_retinol.ingredients or '').lower())
-        print('4. _ingredients_present:', _ingredients_present(p_retinol.ingredients, query_skin_context['avoided_ingredients']))
-
-        expansion_terms  = sorted(query_skin_context['detected_conditions'])
-        expanded_query   = " ".join([normalized_query] + expansion_terms).strip()
-        raw_query_tokens = tokenize_and_stem(normalized_query)
-        query_tokens     = tokenize_and_stem(expanded_query)
+    expansion_terms  = sorted(query_skin_context['detected_conditions'])
+    expanded_query   = " ".join([normalized_query] + expansion_terms).strip()
+    raw_query_tokens = tokenize_and_stem(normalized_query)
+    query_tokens     = tokenize_and_stem(expanded_query)
 
     is_partial_query     = len(normalized_query.split()) == 1 and len(normalized_query) <= 6
     MIN_MATCH_SCORE      = 0.1
@@ -524,7 +513,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         structured = (f"{p.product_name or ''} {p.brand_name or ''} {p.primary_category or ''} "
                       f"{p.secondary_category or ''} {p.category or ''} {p.highlights or ''}")
         ingredients = list(dict.fromkeys((p.ingredients or '').lower().split(',')))
-        ingredients_text = ' '.join(i.strip() for i in ingredients[:100])
+        ingredients_text = ' '.join(i.strip() for i in ingredients[:30])
         return f"{structured} {structured} {structured} {p.description or ''} {ingredients_text}"
 
     # product scoring
@@ -575,7 +564,8 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
                 base_score += 0.05
 
         avoided_hits = _ingredients_present(p.ingredients, query_skin_context['avoided_ingredients'])
-        p.avoided_ingredients = list(avoided_hits)
+        if query_skin_context['avoided_ingredients'] and avoided_hits:
+            continue
 
         ingredients_lower = (p.ingredients or '').lower()
 
@@ -602,7 +592,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         else:
             quality_add = 0.02 * rating_boost + 0.02 * loves_boost + 0.5 * (safety_score / 100.0)
 
-        ingredient_add = (alignment - 1.0) * 0.15 - len(avoided_hits) * 0.10
+        ingredient_add = (alignment - 1.0) * 0.15
         results.append((base_score + quality_add + ingredient_add, p))
 
     if not results:
