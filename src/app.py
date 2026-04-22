@@ -6,12 +6,12 @@ from dotenv import load_dotenv
 from flask import Flask
 # from fastapi import FastAPI
 
-load_dotenv()
+from dotenv import load_dotenv
 from flask_cors import CORS
 from models import db, Product, Review
 from routes import register_routes
 
-
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
 # src/ directory and project root (one level up)
 current_directory = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_directory)
