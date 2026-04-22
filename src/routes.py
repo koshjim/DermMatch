@@ -421,7 +421,6 @@ def build_search_index():
     #     ngram_range=(1, 2),
     # )
 
-    #DEBUG
     print("NUM PRODUCTS:", len(products))
     print("RAW SAMPLE:", [_product_svd_text(p) for p in products[:3]])
     print("TOKEN SAMPLE:", [tokenize_and_stem(_product_svd_text(p)) for p in products[:3]])
