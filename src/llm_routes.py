@@ -3,7 +3,7 @@ LLM chat route — only loaded when USE_LLM = True in routes.py.
 Adds a POST /api/chat endpoint that performs LLM-driven RAG.
 
 Setup:
-  1. Add API_KEY=your_key to .env
+  1. Add SPARK_API_KEY=your_key to .env
   2. Set USE_LLM = True in routes.py
 """
 import json
@@ -22,8 +22,8 @@ def llm_search_decision(client, user_message):
         {
             "role": "system",
             "content": (
-                "You have access to a database of Keeping Up with the Kardashians episode titles, "
-                "descriptions, and IMDB ratings. Search is by a single word in the episode title. "
+                "You have access to a database of Sephora skincare products, descriptions, ingredients, "
+               "and product review ratings. Search is by a single word in the product name or description. "
                 "Reply with exactly: YES followed by one space and ONE word to search (e.g. YES wedding), "
                 "or NO if the question does not need episode data."
             ),
@@ -55,7 +55,7 @@ def register_chat_route(app, json_search):
 
         api_key = os.getenv("API_KEY")
         if not api_key:
-            return jsonify({"error": "API_KEY not set — add it to your .env file"}), 500
+            return jsonify({"error": "SPARK_API key not set — add API_KEY to your .env file"}), 500
 
         client = LLMClient(api_key=api_key)
         use_search, search_term = llm_search_decision(client, user_message)
@@ -63,9 +63,9 @@ def register_chat_route(app, json_search):
         if use_search:
             episodes = json_search(search_term or "Kardashian")
             context_text = "\n\n---\n\n".join(
-                f"Title: {ep['title']}\nDescription: {ep['descr']}\nIMDB Rating: {ep['imdb_rating']}"
-                for ep in episodes
-            ) or "No matching episodes found."
+                f"Name: {prod['name']}\nBrand: {prod['brand']}\nPrice: {prod['price']}\nDescription: {prod['description']}\nRating: {prod['rating']}"
+                for prod in products
+            ) or "No matching products found."
             messages = [
                 {"role": "system", "content": "Answer questions about Keeping Up with the Kardashians using only the episode information provided."},
                 {"role": "user", "content": f"Episode information:\n\n{context_text}\n\nUser question: {user_message}"},

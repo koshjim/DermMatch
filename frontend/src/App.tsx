@@ -12,6 +12,130 @@ interface Filters {
   sortBy: string
 }
 
+interface SearchSummaryResponse {
+  summary: string
+  sources: Array<{
+    id: number | null
+    name: string
+    brand: string
+    url: string | null
+  }>
+  total_results: number
+  used_llm: boolean
+}
+
+const QUERY_DICTIONARY = [
+  'moisturizer',
+  'cleanser',
+  'sunscreen',
+  'toner',
+  'serum',
+  'mask',
+  'exfoliator',
+  'eczema',
+  'acne',
+  'sensitive',
+  'niacinamide',
+  'retinol',
+  'hyaluronic',
+  'hydrating',
+  'face',
+  'oil',
+  'dry',
+  'skin',
+]
+const CATEGORY_MAP: Record<string, string> = {
+  'face wash facial cleanser': 'Cleansers',
+  'cleansing oil face oil': 'Cleansing Oils',
+  'body lotion body oil': 'Moisturizers',
+  'face creams': 'Moisturizers',
+  'facial toner skin toner':'Toners',
+  'eye cream dark circles': 'Eye Creams',
+  'facial peels': 'Exfoliators',
+  'exfoliating scrub exfoliator': 'Exfoliators',
+  'facial treatment masks':'Masks',
+  'sheet masks': 'Masks',
+  'face serum': 'Serums',
+  'face sunscreen':'Sunscreens',
+  'lip balm lip care': 'Lip Treatments',
+  'mini skincare': 'Mini Skincare'
+}
+
+function normalizeCategory(raw: string): string {
+  return CATEGORY_MAP[raw.trim().toLowerCase()] ?? raw
+}
+ 
+const CANONICAL_CATEGORIES = [
+  'Cleansers',
+  'Cleansing Oils',
+  'Moisturizers',
+  'Toners',
+  'Eye Creams',
+  'Exfoliators',
+  'Masks',
+  'Serums',
+  'Sunscreens',
+  'Lip Treatments',
+  'Mini Skincare'
+]
+
+function levenshteinDistance(left: string, right: string): number {
+  if (left === right) return 0
+  if (!left.length) return right.length
+  if (!right.length) return left.length
+
+  const matrix: number[][] = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0))
+  for (let i = 0; i <= left.length; i += 1) matrix[i][0] = i
+  for (let j = 0; j <= right.length; j += 1) matrix[0][j] = j
+
+  for (let i = 1; i <= left.length; i += 1) {
+    for (let j = 1; j <= right.length; j += 1) {
+      const substitutionCost = left[i - 1] === right[j - 1] ? 0 : 1
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + substitutionCost,
+      )
+    }
+  }
+
+  return matrix[left.length][right.length]
+}
+
+function getSuggestedQuery(query: string): string | null {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return null
+
+  const tokens = normalized.split(/\s+/)
+  let changed = false
+
+  const corrected = tokens.map((token) => {
+    if (token.length < 4 || QUERY_DICTIONARY.includes(token)) {
+      return token
+    }
+
+    let bestCandidate = token
+    let bestDistance = Number.POSITIVE_INFINITY
+
+    for (const candidate of QUERY_DICTIONARY) {
+      const distance = levenshteinDistance(token, candidate)
+      if (distance < bestDistance) {
+        bestDistance = distance
+        bestCandidate = candidate
+      }
+    }
+
+    if (bestDistance <= 2 && bestCandidate !== token) {
+      changed = true
+      return bestCandidate
+    }
+    return token
+  })
+
+  const suggestion = corrected.join(' ')
+  return changed && suggestion !== normalized ? suggestion : null
+}
+
 function StarRating({ rating }: { rating: number }) {
   return (
     <span className="star-rating">
@@ -77,9 +201,22 @@ function App(): JSX.Element {
   const [filters, setFilters] = useState<Filters>({ category: '', minPrice: '', maxPrice: '', minRating: '', sortBy: 'relevance' })
   const latestRequestId = useRef<number>(0)
 
+  
+  // useEffect(() => {
+  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
+  //   fetch('/api/categories').then(r => r.json()).then(setCategories)
+  // }, [])
+
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
-    fetch('/api/categories').then(r => r.json()).then(setCategories)
+    fetch('/api/categories').then(r => r.json()).then((raw: string[]) => {
+      // Normalize and deduplicate API categories, then merge with canonical list
+      const normalized = Array.from(new Set(raw.map(normalizeCategory)))
+      const canonical = new Set(CANONICAL_CATEGORIES)
+      // Put canonical categories first, then any extras from the API not in canonical
+      const extras = normalized.filter(c => !canonical.has(c))
+      setCategories([...CANONICAL_CATEGORIES, ...extras])
+    })
   }, [])
 
   const runSearch = async (term: string, currentFilters: Filters): Promise<void> => {
@@ -92,7 +229,10 @@ function App(): JSX.Element {
 
     const requestId = ++latestRequestId.current
     const params = new URLSearchParams({ q: trimmed })
-    if (currentFilters.category) params.set('category', currentFilters.category)
+    if (currentFilters.category) {
+      const rawValue = Object.entries(CATEGORY_MAP).find(([, label]) => label === currentFilters.category)?.[0]
+      params.set('category', rawValue ?? currentFilters.category)
+    }
     if (currentFilters.minPrice) params.set('min_price', currentFilters.minPrice)
     if (currentFilters.maxPrice) params.set('max_price', currentFilters.maxPrice)
     if (currentFilters.minRating) params.set('min_rating', currentFilters.minRating)
@@ -303,7 +443,7 @@ function App(): JSX.Element {
 
             {/* Unified pill row */}
             <div className="pill-row">
-              <span className="badge badge-category">{product.category}</span>
+              <span className="badge badge-category">{normalizeCategory(product.category)}</span>
 
               {/* Ingredient signals row */}
               {((product.good_ingredients?.length ?? 0) > 0 || (product.avoided_ingredients?.length ?? 0) > 0) && (

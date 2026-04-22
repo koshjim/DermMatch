@@ -826,6 +826,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     if max_score > 0:
         results = [(s / max_score * 100, p) for s, p in results]
 
+
     if category:
         results = [(s, p) for s, p in results if category.lower() in {
             (p.primary_category or '').lower(),
@@ -899,10 +900,10 @@ def register_routes(app):
             if parent:
                 parent_counts[parent] = parent_counts.get(parent, 0) + 1
 
-        top5 = sorted(parent_counts, key=lambda k: parent_counts[k], reverse=True)[:5]
+        all_categories = sorted(parent_counts, key=lambda k: parent_counts[k], reverse=True)
 
         # print(sorted(parent_counts.items(), key=lambda k: k[1], reverse=True))
-        return jsonify(top5)
+        return jsonify(all_categories)
 
     @app.route("/api/products/search")
     def search_products():
