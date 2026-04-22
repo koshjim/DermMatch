@@ -15,16 +15,6 @@ from infosci_spark_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
-MAX_CHAT_MESSAGE_LENGTH = 200
-MAX_CHAT_RESPONSE_LENGTH = 300
-
-
-def _is_auth_error(exc):
-    """Return True when the upstream LLM provider rejected authentication."""
-    response = getattr(exc, "response", None)
-    status_code = getattr(response, "status_code", None)
-    return status_code == 401
-
 
 def llm_search_decision(client, user_message):
     """Ask the LLM whether to search the DB and which word to use."""
@@ -32,10 +22,10 @@ def llm_search_decision(client, user_message):
         {
             "role": "system",
             "content": (
-                "You have access to a database of Sephora skincare products, descriptions, ingredients, "
-               "and product review ratings. Search is by a single word in the product title. "
+                "You have access to a database of Keeping Up with the Kardashians episode titles, "
+                "descriptions, and IMDB ratings. Search is by a single word in the episode title. "
                 "Reply with exactly: YES followed by one space and ONE word to search (e.g. YES wedding), "
-                "or NO if the question does not need product data."
+                "or NO if the question does not need episode data."
             ),
         },
         {"role": "user", "content": user_message},
@@ -62,48 +52,27 @@ def register_chat_route(app, json_search):
         user_message = (data.get("message") or "").strip()
         if not user_message:
             return jsonify({"error": "Message is required"}), 400
-        if len(user_message) > MAX_CHAT_MESSAGE_LENGTH:
-            return jsonify({"error": f"Message must be {MAX_CHAT_MESSAGE_LENGTH} characters or fewer"}), 400
 
         api_key = os.getenv("API_KEY")
         if not api_key:
-            return jsonify({"error": "API key not set — add API_KEY to your .env file"}), 500
+            return jsonify({"error": "API_KEY not set — add it to your .env file"}), 500
 
         client = LLMClient(api_key=api_key)
-        try:
-            use_search, search_term = llm_search_decision(client, user_message)
-        except Exception as e:
-            if _is_auth_error(e):
-                logger.error("LLM auth failed during search decision: %s", e)
-                return jsonify({"error": "LLM authentication failed (401). Check your API key value."}), 401
-            logger.exception("LLM search decision failed")
-            return jsonify({"error": "LLM request failed before streaming response."}), 502
+        use_search, search_term = llm_search_decision(client, user_message)
 
         if use_search:
-            products = json_search(search_term or "skincare")
+            episodes = json_search(search_term or "Kardashian")
             context_text = "\n\n---\n\n".join(
-                f"Title: {prod['title']}\nDescription: {prod['descr']}\nRating: {prod['rating']}"
-                for prod in products
-            ) or "No matching products found."
+                f"Title: {ep['title']}\nDescription: {ep['descr']}\nIMDB Rating: {ep['imdb_rating']}"
+                for ep in episodes
+            ) or "No matching episodes found."
             messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "Answer questions about Sephora skincare products using only the product information provided. "
-                        f"Keep the answer concise and under {MAX_CHAT_RESPONSE_LENGTH} characters."
-                    ),
-                },
-                {"role": "user", "content": f"Product information:\n\n{context_text}\n\nUser question: {user_message}"},
+                {"role": "system", "content": "Answer questions about Keeping Up with the Kardashians using only the episode information provided."},
+                {"role": "user", "content": f"Episode information:\n\n{context_text}\n\nUser question: {user_message}"},
             ]
         else:
             messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a helpful assistant for Sephora skincare product questions. "
-                        f"Keep the answer concise and under {MAX_CHAT_RESPONSE_LENGTH} characters."
-                    ),
-                },
+                {"role": "system", "content": "You are a helpful assistant for Keeping Up with the Kardashians questions."},
                 {"role": "user", "content": user_message},
             ]
 
@@ -111,30 +80,10 @@ def register_chat_route(app, json_search):
             if use_search and search_term:
                 yield f"data: {json.dumps({'search_term': search_term})}\n\n"
             try:
-                emitted_length = 0
-                truncated = False
                 for chunk in client.chat(messages, stream=True):
                     if chunk.get("content"):
-                        remaining = MAX_CHAT_RESPONSE_LENGTH - emitted_length
-                        if remaining <= 0:
-                            truncated = True
-                            break
-
-                        piece = chunk["content"][:remaining]
-                        emitted_length += len(piece)
-                        yield f"data: {json.dumps({'content': piece})}\n\n"
-
-                        if len(piece) < len(chunk["content"]):
-                            truncated = True
-                            break
-
-                if truncated:
-                    yield f"data: {json.dumps({'content': '…'})}\n\n"
+                        yield f"data: {json.dumps({'content': chunk['content']})}\n\n"
             except Exception as e:
-                if _is_auth_error(e):
-                    logger.error("LLM auth failed during streaming: %s", e)
-                    yield f"data: {json.dumps({'error': 'LLM authentication failed (401). Check your API key value.'})}\n\n"
-                    return
                 logger.error(f"Streaming error: {e}")
                 yield f"data: {json.dumps({'error': 'Streaming error occurred'})}\n\n"
 

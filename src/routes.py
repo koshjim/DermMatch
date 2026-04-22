@@ -1,5 +1,5 @@
 """
-Routes: React app serving and products search API.
+Routes: React app serving and episode search API.
 
 To enable AI chat, set USE_LLM = True below. See llm_routes.py for AI code.
 """
@@ -7,7 +7,6 @@ import json
 import os
 import csv
 import re
-import logging
 from functools import lru_cache
 import pandas as pd
 import numpy as np
@@ -17,8 +16,6 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import TruncatedSVD
 from sklearn.preprocessing import normalize
-
-logger = logging.getLogger(__name__)
 
 # ── AI toggle ────────────────────────────────────────────────────────────────
 # USE_LLM = False
@@ -35,7 +32,6 @@ def clean_product_description(text):
     ]
     cleaned = " ".join(kept)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-    cleaned = re.sub(r'(?i)\bp\s+h\b', 'pH', cleaned)
 
     # Drop placeholder/noise descriptions like "wf", "n/a", "--", etc.
     cleaned_norm = normalize_search_text(cleaned)
@@ -444,162 +440,6 @@ def _get_search_index():
     return _search_index
 
 
-def build_rag_query_context(query, max_snippets=8):
-    """Retrieve top product snippets as grounding context for query expansion."""
-    normalized_query = normalize_search_text(query)
-    query_tokens = tokenize_and_stem(normalized_query)
-    if not query_tokens:
-        return ""
-
-    idx = _get_search_index()
-    products = idx['products']
-    vectorizer = idx['vectorizer']
-    tfidf_matrix = idx['tfidf_matrix']
-
-    vocab = vectorizer.vocabulary_
-    query_terms = [token for token in query_tokens if token in vocab]
-    if not query_terms:
-        query_terms = query_tokens
-
-    query_vec = vectorizer.transform([" ".join(query_terms)])
-    similarities = cosine_similarity(query_vec, tfidf_matrix).flatten()
-    ranked_indices = similarities.argsort()[::-1]
-
-    snippets = []
-    for doc_idx in ranked_indices:
-        if len(snippets) >= max_snippets:
-            break
-        sim = float(similarities[doc_idx])
-        if sim <= 0 and snippets:
-            continue
-
-        p = products[doc_idx]
-        categories = " / ".join(
-            x for x in [p.primary_category, p.secondary_category, p.category] if x
-        )
-        snippet = (
-            f"Product: {p.product_name or ''}; "
-            f"Brand: {p.brand_name or ''}; "
-            f"Category: {categories}; "
-            f"Highlights: {(p.highlights or '')[:120]}; "
-            f"Ingredients: {(p.ingredients or '')[:180]}"
-        )
-        snippets.append(snippet)
-
-    return "\n".join(snippets)
-
-
-def rag_expand_query(query):
-    """Expand the user query with RAG context before retrieval scoring."""
-    raw_query = (query or "").strip()
-    if not raw_query or not USE_LLM:
-        return raw_query
-
-    api_key = os.getenv("API_KEY")
-    if not api_key:
-        return raw_query
-
-    context = build_rag_query_context(raw_query)
-    if not context:
-        return raw_query
-
-    try:
-        from infosci_spark_client import LLMClient
-
-        client = LLMClient(api_key=api_key)
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You rewrite search queries for skincare product retrieval. "
-                    "Output exactly one short expanded query, no explanation. "
-                    "Preserve hard constraints and negations such as without/avoid/no/free of. "
-                    "Keep brand, category, skin concerns, and ingredient intent explicit."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Original query: {raw_query}\n\n"
-                    f"Retrieved context:\n{context}\n\n"
-                    "Return only the expanded query."
-                ),
-            },
-        ]
-
-        response = client.chat(messages)
-        expanded = (response.get("content") or "").strip()
-        expanded = re.sub(r"^expanded query\s*:\s*", "", expanded, flags=re.IGNORECASE)
-        expanded = re.sub(r"\s+", " ", expanded).strip(" \"'")
-
-        if not expanded:
-            return raw_query
-
-        if len(expanded.split()) > 30:
-            expanded = " ".join(expanded.split()[:30])
-
-        return expanded
-    except Exception as exc:
-        logger.warning("RAG query expansion failed, falling back to raw query: %s", exc)
-        return raw_query
-
-
-def rocchio_pseudo_feedback_query(
-    query_vec,
-    tfidf_matrix,
-    base_scores,
-    candidate_indices,
-    alpha=1.0,
-    beta=0.70,
-    gamma=0.10,
-    top_k=10,
-    bottom_k=20,
-):
-    """Apply Rocchio pseudo-relevance feedback and return an updated query vector."""
-    q_dense = query_vec.toarray().ravel()
-    if q_dense.size == 0:
-        return query_vec
-
-    if candidate_indices:
-        scored_candidates = sorted(
-            ((base_scores[i], i) for i in sorted(candidate_indices)),
-            key=lambda pair: pair[0],
-            reverse=True,
-        )
-    else:
-        scored_candidates = sorted(
-            ((score, i) for i, score in enumerate(base_scores)),
-            key=lambda pair: pair[0],
-            reverse=True,
-        )
-
-    relevant_ids = [idx for _, idx in scored_candidates[:top_k]]
-    non_relevant_ids = [idx for _, idx in scored_candidates[-bottom_k:]]
-
-    if not relevant_ids:
-        return query_vec
-
-    relevant_centroid = tfidf_matrix[relevant_ids].mean(axis=0).A1
-    non_relevant_centroid = (
-        tfidf_matrix[non_relevant_ids].mean(axis=0).A1
-        if non_relevant_ids else np.zeros_like(relevant_centroid)
-    )
-
-    updated = alpha * q_dense + beta * relevant_centroid - gamma * non_relevant_centroid
-    updated = np.maximum(updated, 0.0)
-
-    updated_norm = np.linalg.norm(updated)
-    if updated_norm > 0:
-        updated = updated / updated_norm
-        return updated.reshape(1, -1)
-
-    original_norm = np.linalg.norm(q_dense)
-    if original_norm > 0:
-        return (q_dense / original_norm).reshape(1, -1)
-
-    return query_vec
-
-
 def ranked_product_search(query, category='', min_price=None, max_price=None, min_rating=None, sort_by='relevance'):
     global score_name
 
@@ -694,20 +534,12 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
 
     query_vec = vectorizer.transform([" ".join(expanded_query_tokens)])
 
-    initial_tfidf_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
-    rocchio_query_vec = rocchio_pseudo_feedback_query(
-        query_vec=query_vec,
-        tfidf_matrix=tfidf_matrix,
-        base_scores=initial_tfidf_sim,
-        candidate_indices=candidate_indices,
-    )
-
-    tfidf_sim = cosine_similarity(rocchio_query_vec, tfidf_matrix).flatten()
+    tfidf_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
 
     svd_sim = np.zeros_like(tfidf_sim)
     query_lsa = None
     if n_components >= 2 and svd is not None:
-        query_lsa = normalize(svd.transform(rocchio_query_vec))
+        query_lsa = normalize(svd.transform(query_vec))
         svd_sim   = cosine_similarity(query_lsa, doc_lsa).flatten()
 
     similarities = 0.60 * tfidf_sim + 0.40 * svd_sim
@@ -894,8 +726,8 @@ def register_routes(app):
     @app.route("/api/config")
     def config():
         return jsonify({"use_llm": USE_LLM})
-    # Queries can be transformed upstream (e.g., by RAG), then ranked here
-    # with fuzzy expansion + Rocchio pseudo-relevance feedback.
+    # Transform query with LLM first and the put into Rocchio
+    # put RAG query extension, RAG chatbot and RAG summary here
     
     @app.route("/api/categories")
     def get_categories():
@@ -922,27 +754,7 @@ def register_routes(app):
         max_price = request.args.get("max_price", type=float)
         min_rating = request.args.get("min_rating", type=float)
         sort_by = request.args.get("sort_by", "relevance")
-        use_rag = request.args.get("use_rag", "true").strip().lower() not in {"false", "0", "no", "off"}
-        debug_query = request.args.get("debug_query", "false").strip().lower() in {"true", "1", "yes", "on"}
-
-        query_for_search = rag_expand_query(q) if use_rag else q
-        results = ranked_product_search(
-            query_for_search,
-            category=category,
-            min_price=min_price,
-            max_price=max_price,
-            min_rating=min_rating,
-            sort_by=sort_by,
-        )
-
-        if debug_query:
-            return jsonify({
-                "original_query": q,
-                "rag_query": query_for_search,
-                "results": results,
-            })
-
-        return jsonify(results)
+        return jsonify(ranked_product_search(q, category=category, min_price=min_price, max_price=max_price, min_rating=min_rating, sort_by=sort_by))
     
     @app.get('/score')
     def get_score_name():
