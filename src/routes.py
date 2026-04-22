@@ -395,17 +395,10 @@ def build_search_index():
 
     products = Product.query.all()
 
-    # corpus = [" ".join(tokenize_and_stem(_product_svd_text(p))) for p in products]
-    
-    corpus = []
-    for p in products:
-        raw_text = _product_svd_text(p) or ""
-        tokens = tokenize_and_stem(raw_text)
-        if tokens:
-            corpus.append(" ".join(tokens))
-
-    if not corpus:
-        raise ValueError("Corpus is empty — cannot build search index")
+    corpus = [
+        " ".join(tokenize_and_stem(_product_svd_text(p))) or "empty"
+        for p in products
+    ]
 
     vectorizer = TfidfVectorizer(
         stop_words='english',
