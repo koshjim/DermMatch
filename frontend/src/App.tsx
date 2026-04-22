@@ -44,6 +44,40 @@ const QUERY_DICTIONARY = [
   'dry',
   'skin',
 ]
+const CATEGORY_MAP: Record<string, string> = {
+  'face wash facial cleanser': 'Cleansers',
+  'cleansing oil face oil': 'Cleansing Oils',
+  'body lotion body oil': 'Moisturizers',
+  'face creams': 'Moisturizers',
+  'facial toner skin toner':'Toners',
+  'eye cream dark circles': 'Eye Creams',
+  'facial peels': 'Exfoliators',
+  'exfoliating scrub exfoliator': 'Exfoliators',
+  'facial treatment masks':'Masks',
+  'sheet masks': 'Masks',
+  'face serum': 'Serums',
+  'face sunscreen':'Sunscreens',
+  'lip balm lip care': 'Lip Treatments',
+  'mini skincare': 'Mini Skincare'
+}
+
+function normalizeCategory(raw: string): string {
+  return CATEGORY_MAP[raw.trim().toLowerCase()] ?? raw
+}
+ 
+const CANONICAL_CATEGORIES = [
+  'Cleansers',
+  'Cleansing Oils',
+  'Moisturizers',
+  'Toners',
+  'Eye Creams',
+  'Exfoliators',
+  'Masks',
+  'Serums',
+  'Sunscreens',
+  'Lip Treatments',
+  'Mini Skincare'
+]
 
 function levenshteinDistance(left: string, right: string): number {
   if (left === right) return 0
@@ -171,9 +205,22 @@ function App(): JSX.Element {
   const [filters, setFilters] = useState<Filters>({ category: '', minPrice: '', maxPrice: '', minRating: '', sortBy: 'relevance' })
   const latestRequestId = useRef<number>(0)
 
+  
+  // useEffect(() => {
+  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
+  //   fetch('/api/categories').then(r => r.json()).then(setCategories)
+  // }, [])
+
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
-    fetch('/api/categories').then(r => r.json()).then(setCategories)
+    fetch('/api/categories').then(r => r.json()).then((raw: string[]) => {
+      // Normalize and deduplicate API categories, then merge with canonical list
+      const normalized = Array.from(new Set(raw.map(normalizeCategory)))
+      const canonical = new Set(CANONICAL_CATEGORIES)
+      // Put canonical categories first, then any extras from the API not in canonical
+      const extras = normalized.filter(c => !canonical.has(c))
+      setCategories([...CANONICAL_CATEGORIES, ...extras])
+    })
   }, [])
 
   const runSearch = async (term: string, currentFilters: Filters): Promise<void> => {
@@ -186,7 +233,10 @@ function App(): JSX.Element {
 
     const requestId = ++latestRequestId.current
     const params = new URLSearchParams({ q: trimmed })
-    if (currentFilters.category) params.set('category', currentFilters.category)
+    if (currentFilters.category) {
+      const rawValue = Object.entries(CATEGORY_MAP).find(([, label]) => label === currentFilters.category)?.[0]
+      params.set('category', rawValue ?? currentFilters.category)
+    }
     if (currentFilters.minPrice) params.set('min_price', currentFilters.minPrice)
     if (currentFilters.maxPrice) params.set('max_price', currentFilters.maxPrice)
     if (currentFilters.minRating) params.set('min_rating', currentFilters.minRating)
@@ -532,7 +582,7 @@ function App(): JSX.Element {
 
             {/* Unified pill row */}
             <div className="pill-row">
-              <span className="badge badge-category">{product.category}</span>
+              <span className="badge badge-category">{normalizeCategory(product.category)}</span>
 
               {/* Ingredient signals row */}
               {((product.good_ingredients?.length ?? 0) > 0 || (product.avoided_ingredients?.length ?? 0) > 0) && (
