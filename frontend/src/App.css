@@ -341,6 +341,13 @@ body {
   font-weight: 600;
 }
 
+.refining-badge {
+  font-size: 13px;
+  font-weight: 400;
+  color: #8fa68f;
+  font-style: italic;
+}
+
 .did-you-mean-copy {
   color: #7a847d;
   font-weight: 500;
