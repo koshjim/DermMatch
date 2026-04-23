@@ -1,6 +1,7 @@
 import json
 import os
 import csv
+import ast
 from dotenv import load_dotenv
 from flask import Flask
 # from fastapi import FastAPI
@@ -9,6 +10,7 @@ load_dotenv()
 from flask_cors import CORS
 from models import db, Product, Review
 from routes import register_routes
+
 
 # src/ directory and project root (one level up)
 current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -38,6 +40,18 @@ register_routes(app)
 # @app.get("/score")
 # def get_score_name():
 #     return {"Similarity Score": score_name}
+
+def parse_ingredients(raw):
+    if not raw:
+        return ''
+    raw = raw.strip()
+    if raw.startswith('['):
+        try:
+            items = ast.literal_eval(raw)
+            return ', '.join(str(i).strip() for i in items)
+        except (ValueError, SyntaxError):
+            pass
+    return raw
 
 # Function to initialize database, change this to your own database initialization logic
 def to_bool(val):
@@ -102,7 +116,7 @@ def init_db():
                         # sale_price_usd=to_float(row.get('sale_price_usd')),
 
                         description=desc,
-                        ingredients=row.get('ingredients'),
+                        ingredients=parse_ingredients(row.get('ingredients')),
 
                         loves_count=to_int(row.get('loves_count')),
                         rating=to_float(row.get('rating')),
@@ -145,6 +159,7 @@ def init_db():
 
             db.session.commit()
             print("Database initialized with products CSV data")
+
 
 init_db()
 

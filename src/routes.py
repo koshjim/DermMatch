@@ -18,8 +18,8 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.preprocessing import normalize
 
 # ── AI toggle ────────────────────────────────────────────────────────────────
-# USE_LLM = False
-USE_LLM = True
+USE_LLM = False
+# USE_LLM = True
 # ─────────────────────────────────────────────────────────────────────────────
 
 def clean_product_description(text):
@@ -759,3 +759,4 @@ def register_routes(app):
 
     if USE_LLM:
         from llm_routes import register_chat_route
+        register_chat_route(app, json_search)
