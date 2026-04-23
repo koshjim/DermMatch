@@ -18,8 +18,8 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.preprocessing import normalize
 
 # ── AI toggle ────────────────────────────────────────────────────────────────
-USE_LLM = False
-# USE_LLM = True
+# USE_LLM = False
+USE_LLM = True
 # ─────────────────────────────────────────────────────────────────────────────
 
 def clean_product_description(text):
@@ -254,6 +254,18 @@ CATEGORY_KEYWORDS = {
     'perfume':     ['perfume', 'fragrance', 'eau de parfum', 'eau de toilette', 'cologne', 'scent'],
 }
 
+def fuzzy_expand_token(token, vocab, max_distance=2):
+    """Return vocab terms that fuzzy-match a token not found in vocab."""
+    if token in vocab:
+        return [token]
+    matches = []
+    for v in vocab:
+        if abs(len(v) - len(token)) > max_distance:
+            continue
+        if levenshtein_distance(token, v) <= max_distance:
+            matches.append(v)
+    return matches
+
 def parse_query_skin_context(query):
     rules = load_skin_condition_rules()
     normalized_query = normalize_search_text(query)
@@ -269,7 +281,7 @@ def parse_query_skin_context(query):
     avoid_markers  = ('without ', 'avoid ', 'no ', 'free of ', 'exclude ', 'not ')
 
     wants_avoid  = any(m in normalized_query for m in avoid_markers)
-    wants_prefer = not wants_avoid and any(m in normalized_query for m in prefer_markers)
+    wants_prefer = not wants_avoid or any(m in normalized_query for m in prefer_markers)
 
     preferred_ingredients, avoided_ingredients = set(), [set(),set()] ## for avoided ingredients, have one set for direct mentions and one for indirect mentions via skin conditions.
     for term in rules['all_good_terms'] | rules['all_bad_terms']:
@@ -359,6 +371,75 @@ def get_chemical_frequency():
                     chemical_counts[name] = chemical_counts.get(name, 0) + 1
     return list(chemical_counts.items())
 
+_search_index = None
+
+# extract svd info once to decr computation per query
+def _product_svd_text(p):
+    """Full-text for SVD corpus — brand name excluded intentionally."""
+    structured = (
+        f"{p.product_name or ''} {p.primary_category or ''} "
+        f"{p.secondary_category or ''} {p.category or ''} {p.highlights or ''}"
+    )
+    ingredients = list(dict.fromkeys((p.ingredients or '').lower().split(',')))
+    ingredients_text = ' '.join(i.strip() for i in ingredients[:100])
+        
+    return f"{structured} {structured} {structured} {p.description or ''} {ingredients_text}"
+
+
+def build_search_index():
+    global _search_index
+
+    products = Product.query.all()
+
+    corpus = [" ".join(tokenize_and_stem(_product_svd_text(p))) for p in products]
+
+    vectorizer = TfidfVectorizer(
+        stop_words='english',
+        min_df=1,
+        max_df=0.98,
+        ngram_range=(1, 2),
+    )
+    tfidf_matrix = vectorizer.fit_transform(corpus)
+    terms = vectorizer.get_feature_names_out()
+
+    # Build inverted index: term → [product indices]
+    inverted_index = {}
+    cx = tfidf_matrix.tocsr()
+    for term, col_idx in vectorizer.vocabulary_.items():
+        col = cx.getcol(col_idx)
+        doc_indices = col.nonzero()[0].tolist()
+        if doc_indices:
+            inverted_index[term] = doc_indices
+
+    n_components = min(tfidf_matrix.shape[0] - 1, tfidf_matrix.shape[1] - 1, 100)
+
+    svd = None
+    doc_lsa = np.zeros((len(products), max(n_components, 1)))
+
+    if n_components >= 2:
+        svd = TruncatedSVD(n_components=n_components, random_state=42)
+        doc_lsa = normalize(svd.fit_transform(tfidf_matrix))
+
+    _search_index = {
+        'products':     products,
+        'vectorizer':   vectorizer,
+        'tfidf_matrix': tfidf_matrix,
+        'svd':          svd,
+        'doc_lsa':      doc_lsa,
+        'terms':        terms,
+        'n_components': n_components,
+        'inverted_index': inverted_index,
+    }
+
+    return _search_index
+
+
+def _get_search_index():
+    if _search_index is None:
+        build_search_index()
+    return _search_index
+
+
 def ranked_product_search(query, category='', min_price=None, max_price=None, min_rating=None, sort_by='relevance'):
     global score_name
 
@@ -374,6 +455,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     doc_lsa      = idx['doc_lsa']
     terms        = idx['terms']
     n_components = idx['n_components']
+    inverted_index = idx['inverted_index']
 
     # parse query
     normalized_query    = normalize_search_text(query)
@@ -409,96 +491,97 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     MIN_MATCH_SCORE      = 0.1
     MIN_BASE_SIMILARITY  = 0.05  if is_partial_query else 0.2
     MIN_TFIDF_SIMILARITY = 0.001 if is_partial_query else 0.01
-    MIN_SVD_SIMILARITY = 0.02 if is_partial_query else 0.1
+    MIN_SVD_SIMILARITY   = 0.02  if is_partial_query else 0.1
 
-    products = Product.query.all()
-
-    chem_freq = get_chemical_frequency()
-    max_chem_freq = max((freq for _, freq in chem_freq), default=1)
-
-    def product_full_text(p):
-        structured = (f"{p.product_name or ''} {p.brand_name or ''} {p.primary_category or ''} "
-                    f"{p.secondary_category or ''} {p.category or ''} {p.highlights or ''}")
-        ingredients = list(dict.fromkeys((p.ingredients or '').lower().split(',')))
-        ingredients_text = ' '.join(i.strip() for i in ingredients[:30])
-        return f"{structured} {structured} {structured} {p.description or ''} {ingredients_text}"
-
-    # TF-IDF + SVD/LSA
-    corpus = [" ".join(tokenize_and_stem(product_full_text(p))) for p in products]
-    vectorizer = TfidfVectorizer(
-        stop_words='english',
-        min_df=1,           # may adjust to 2 if too slow/noisy
-        max_df=0.98,        # ignore terms in 95%+ of products (too generic)
-        ngram_range=(1, 2), # bigrams like "salicylic acid", "hyaluronic acid"
-    )
-    tfidf_matrix = vectorizer.fit_transform(corpus)
-
-    # Build set of stemmed tokens to suppress from query (avoided ingredients only)
+    # vectorize query
     avoided_tokens = set()
     for term in explicit_avoided | condition_avoided:
         avoided_tokens.update(tokenize_and_stem(term))
 
     vocab = vectorizer.vocabulary_
     expanded_query_tokens = []
+    
     for token in query_tokens:
         if token in avoided_tokens:
-            continue  # strip avoided ingredient tokens so TF-IDF doesn't boost products containing them
-        expanded_query_tokens.append(token)
-        if len(token) >= 4:
+            continue
+        if token in vocab:
+            expanded_query_tokens.append(token)
+            # also grab prefix matches
             expanded_query_tokens.extend(v for v in vocab if v.startswith(token) and v != token)
+        else:
+            # token is OOV (e.g. a typo) — fuzzy match it into the vocab
+            fuzzy_matches = fuzzy_expand_token(token, vocab)
+            expanded_query_tokens.extend(fuzzy_matches)
+    
+    # OLD QUERY EXPANSION (WITHOUT FUZZY)
+    # expanded_query_tokens = []
+    # for token in query_tokens:
+    #     if token in avoided_tokens:
+    #         continue
+    #     expanded_query_tokens.append(token)
+    #     if len(token) >= 4:
+    #         expanded_query_tokens.extend(v for v in vocab if v.startswith(token) and v != token)
+
+    # Look up candidate product indices from inverted index
+    candidate_indices = set()
+    for token in expanded_query_tokens:
+        if token in inverted_index:
+            candidate_indices.update(inverted_index[token])
+
+    # Fall back to all products for very short/unmatched queries
+    if not candidate_indices:
+        candidate_indices = set(range(len(products)))
 
     query_vec = vectorizer.transform([" ".join(expanded_query_tokens)])
 
-
-    # query_vec = vectorizer.transform([" ".join(query_tokens)])
-
     tfidf_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
 
-    n_components = min(tfidf_matrix.shape[0] - 1, tfidf_matrix.shape[1] - 1, 100)
     svd_sim = np.zeros_like(tfidf_sim)
-    if n_components >= 2:
-        svd = TruncatedSVD(n_components=n_components, random_state=42)
-        doc_lsa = normalize(svd.fit_transform(tfidf_matrix))
+    query_lsa = None
+    if n_components >= 2 and svd is not None:
         query_lsa = normalize(svd.transform(query_vec))
-        svd_sim = cosine_similarity(query_lsa, doc_lsa).flatten()
-
-    # After svd_sim is computed, get top dimensions per product
-    def get_top_dimensions(doc_lsa_row, query_lsa_row, svd, terms, n=5):
-        dim_contributions = doc_lsa_row * query_lsa_row.flatten()
-        top_dims = dim_contributions.argsort()[-n:][::-1]
-        bottom_dims = dim_contributions.argsort()[:n]
-
-        def dims_to_list(dims):
-            result = []
-            for dim in dims:
-                top_term_indices = svd.components_[dim].argsort()[-5:][::-1]
-                top_terms = [terms[i] for i in top_term_indices]
-                result.append({
-                    "dim": int(dim),
-                    "contribution": float(dim_contributions[dim]),
-                    "top_terms": top_terms
-                })
-            return result
-
-        return {
-            "top": dims_to_list(top_dims),
-            "bottom": dims_to_list(bottom_dims)
-        }
-    
-    # For each top result, show which dimensions drove the match (positive and negative)
-    terms = vectorizer.get_feature_names_out()
+        svd_sim   = cosine_similarity(query_lsa, doc_lsa).flatten()
 
     similarities = 0.60 * tfidf_sim + 0.40 * svd_sim
 
+    # SVD dimensions (for frontend display)
+    def get_top_dimensions(doc_lsa_row, n=5):
+        dim_contributions = doc_lsa_row * query_lsa.flatten()
+        top_dims    = dim_contributions.argsort()[-n:][::-1]
+        bottom_dims = dim_contributions.argsort()[:n]
+
+        def dims_to_list(dims):
+            return [{
+                'dim':          int(d),
+                'contribution': float(dim_contributions[d]),
+                'top_terms':    [terms[i] for i in svd.components_[d].argsort()[-5:][::-1]],
+            } for d in dims]
+
+        return {'top': dims_to_list(top_dims), 'bottom': dims_to_list(bottom_dims)}
+
+    # apply chemical frequency penalty
+    chem_freq     = get_chemical_frequency()
+    max_chem_freq = max((freq for _, freq in chem_freq), default=1)
+
+    # text parsing for ingredient matching and category detection
+    def product_full_text(p):
+        structured = (f"{p.product_name or ''} {p.brand_name or ''} {p.primary_category or ''} "
+                      f"{p.secondary_category or ''} {p.category or ''} {p.highlights or ''}")
+        ingredients = list(dict.fromkeys((p.ingredients or '').lower().split(',')))
+        ingredients_text = ' '.join(i.strip() for i in ingredients[:100])
+        return f"{structured} {structured} {structured} {p.description or ''} {ingredients_text}"
+
+    # product scoring
     results = []
 
     for i, p in enumerate(products):
         product_category_text = f"{p.primary_category or ''} {p.secondary_category or ''} {p.category or ''}".lower()
         category_match = bool(query_category and query_category in product_category_text)
 
+        if i not in candidate_indices:
+            continue
+
         if explicit_category_intent and not category_match:
-            # If user explicitly asked for a category (e.g., "cleanser with niacinamide"),
-            # exclude products outside that category rather than merely downranking them.
             continue
 
         # ── Hard exclude products containing avoided ingredients ──
@@ -513,7 +596,6 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
             continue # hard exclude — even if user didn't explicitly say "without" but best for their skin condition"
 
         if pure_category_query:
-            # Drop non-matching categories; all matches start equal, ranked by quality
             if not category_match:
                 continue
             base_score = 0.0
@@ -526,7 +608,6 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
             if base_score < MIN_BASE_SIMILARITY:
                 continue
 
-            # Token coverage + phrase match boosts
             product_tokens = tokenize_and_stem(product_full_text(p))
             token_coverage = (
                 sum(1 for t in raw_query_tokens if any(words_match(t, c) for c in product_tokens))
@@ -549,73 +630,32 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
             if normalized_query in normalize_search_text(f"{p.product_name or ''} {p.brand_name or ''}"):
                 base_score += 0.05
 
-<<<<<<< HEAD
-        # Safety score Old Version (chemical frequency deductions only):
-        # safety_score = max(0.0, 100.0 - sum(
-        #     (freq / max_chem_freq) * 10 for name, freq in chem_freq if name in (p.ingredients or '')
-        # ))
-        # p.flagged_ingredients = list({name for name, _ in chem_freq if p.ingredients and name in p.ingredients})
-        # p.good_ingredients = list(_ingredients_present(p.ingredients, query_skin_context['preferred_ingredients']))
-        # p.safety_score = safety_score
-
-        # # Safety score — chemical safety dataset deductions
-        # safety_score = max(0.0, 100.0 - sum(
-        #     (freq / max_chem_freq) * 10 for name, freq in chem_freq if name in (p.ingredients or '')
-        # ))
-
-        # # Additional deduction for condition-specific bad ingredients
-        # if query_skin_context['avoided_ingredients']:
-        #     avoided_hits = _ingredients_present(p.ingredients, query_skin_context['avoided_ingredients'])
-        #     safety_score = max(0.0, safety_score - len(avoided_hits) * 10)
-
-        # p.flagged_ingredients = list({name for name, _ in chem_freq if p.ingredients and name in p.ingredients})
-        
-        # # Also flag condition-specific bad ingredients
-        # if query_skin_context['avoided_ingredients']:
-        #     condition_flags = _ingredients_present(p.ingredients, query_skin_context['avoided_ingredients'])
-        #     p.flagged_ingredients = list(set(p.flagged_ingredients) | condition_flags)
-
-        # p.safety_score = safety_score
-        
-        avoided_hits = _ingredients_present(p.ingredients, query_skin_context['avoided_ingredients'])
-        if query_skin_context['avoided_ingredients'] and avoided_hits:
-            # Hard exclude products containing ingredients the query asks to avoid.
-            continue
-        
-=======
->>>>>>> 7fcd7a6 (Merge pull request #23 from koshjim/stephanie)
         ingredients_lower = (p.ingredients or '').lower()
 
-        safety_score = max(0.0, 100.0 - sum((freq / max_chem_freq) * 2000 for name, freq in chem_freq if name.lower() in ingredients_lower) - len(avoided_hits) * 10)
+        safety_score = max(0.0, 100.0 - sum(
+            (freq / max_chem_freq) * 2000 for name, freq in chem_freq if name.lower() in ingredients_lower
+        ) - len(avoided_hits) * 10)
 
         p.flagged_ingredients = list({name for name, _ in chem_freq if name.lower() in ingredients_lower})
-        p.avoided_ingredients = list(avoided_hits)  
-        # p.flagged_ingredients = list({name for name, _ in chem_freq if name.lower() in ingredients_lower} | avoided_hits)
-        p.safety_score = safety_score
+        p.avoided_ingredients = list(avoided_hits)
+        p.safety_score        = safety_score
 
-        # Ingredient alignment
-        preferred_hits = _ingredients_present(p.ingredients, query_skin_context['preferred_ingredients'])
-        p.good_ingredients = list(_ingredients_present(p.ingredients, query_skin_context['preferred_ingredients']))
+        preferred_hits     = _ingredients_present(p.ingredients, query_skin_context['preferred_ingredients'])
+        p.good_ingredients = list(preferred_hits)
         alignment = max(0.30, 1.0 + min(0.08 * len(preferred_hits), 0.32) - min(0.12 * len(avoided_hits), 0.48))
 
-        # After computing svd_sim, inside the for loop:
-        p.svd_score = float(svd_sim[i])
-        p.top_dimensions = get_top_dimensions(doc_lsa[i], query_lsa, svd, terms) if n_components >= 2 else []
+        p.svd_score      = float(svd_sim[i])
+        p.top_dimensions = get_top_dimensions(doc_lsa[i]) if (n_components >= 2 and query_lsa is not None) else []
 
         rating_boost = (p.rating or 0) / 5.0
         loves_boost  = min((p.loves_count or 0) / 10000, 1.0)
 
         if pure_category_query:
-            # Quality is the only ranking signal if pure category query
             quality_add = 0.2 * rating_boost + 0.3 * loves_boost + 0.5 * (safety_score / 100.0)
         else:
             quality_add = 0.02 * rating_boost + 0.02 * loves_boost + 0.5 * (safety_score / 100.0)
 
-<<<<<<< HEAD
-        ingredient_add = (alignment - 1.0) * 0.15  # Max 15% boost for perfect alignment, up to 15% penalty for misalignment
-=======
         ingredient_add = (alignment - 1.0) * 0.15
->>>>>>> 7fcd7a6 (Merge pull request #23 from koshjim/stephanie)
         results.append((base_score + quality_add + ingredient_add, p))
 
     if not results:
@@ -625,15 +665,14 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     if max_score > 0:
         results = [(s / max_score * 100, p) for s, p in results]
 
-    # Filters
     if category:
         results = [(s, p) for s, p in results if category.lower() in {
             (p.primary_category or '').lower(),
             (p.secondary_category or '').lower(),
             (p.category or '').lower()
         }]
-    if min_price is not None: results = [(s, p) for s, p in results if (p.price  or 0) >= min_price]
-    if max_price is not None: results = [(s, p) for s, p in results if (p.price  or 0) <= max_price]
+    if min_price  is not None: results = [(s, p) for s, p in results if (p.price  or 0) >= min_price]
+    if max_price  is not None: results = [(s, p) for s, p in results if (p.price  or 0) <= max_price]
     if min_rating is not None: results = [(s, p) for s, p in results if (p.rating or 0) >= min_rating]
 
     results = [(s, p) for s, p in results if s > MIN_MATCH_SCORE]
@@ -641,10 +680,10 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
         return []
 
     sort_keys = {
-        'price_asc': (lambda x: x[1].price or 0, False),
-        'price_desc': (lambda x: x[1].price or 0, True),
-        'rating': (lambda x: x[1].rating or 0, True),
-        'safety': (lambda x: getattr(x[1], 'safety_score', 100.0), True),
+        'price_asc':  (lambda x: x[1].price or 0,                      False),
+        'price_desc': (lambda x: x[1].price or 0,                      True),
+        'rating':     (lambda x: x[1].rating or 0,                     True),
+        'safety':     (lambda x: getattr(x[1], 'safety_score', 100.0), True),
     }
     key, reverse = sort_keys.get(sort_by, (lambda x: x[0], True))
     results.sort(key=key, reverse=reverse)
@@ -652,30 +691,26 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     score_name = [(s, p.product_name) for s, p in results]
 
     return [{
-        "id": p.id, 
-        "name": p.product_name, 
-        "category": p.category,
-        "brand": p.brand_name, 
-        "price": p.price, 
-        "sale_price": p.sale_price_usd,
-        "rating": p.rating, 
-        "review_count": p.review_count, 
-        "loves_count": p.loves_count,
-        "description": clean_product_description(p.description), 
-        "ingredients": p.ingredients,
-        "highlights": p.highlights, 
-        # "is_new": p.new, 
-        # "sephora_exclusive": p.sephora_exclusive,
-        # "limited_edition": p.limited_edition, 
-        # "out_of_stock": p.out_of_stock,
-        "safety_score": getattr(p, 'safety_score', 100.0), 
-        "score": s,
-        "flagged_ingredients": p.flagged_ingredients,
-        "avoided_ingredients": getattr(p, 'avoided_ingredients', []),
-        "good_ingredients": getattr(p, 'good_ingredients', []),
-        "svd_score": getattr(p, 'svd_score', 0.0),
-        "top_dimensions": getattr(p, 'top_dimensions', []),
-        "url": f"https://www.sephora.com/product/{p.product_id}" if p.product_id else None,
+        'id':                  p.id,
+        'name':                p.product_name,
+        'category':            p.category,
+        'brand':               p.brand_name,
+        'price':               p.price,
+        'sale_price':          p.sale_price_usd,
+        'rating':              p.rating,
+        'review_count':        p.review_count,
+        'loves_count':         p.loves_count,
+        'description':         clean_product_description(p.description),
+        'ingredients':         p.ingredients,
+        'highlights':          p.highlights,
+        'safety_score':        getattr(p, 'safety_score', 100.0),
+        'score':               s,
+        'flagged_ingredients': p.flagged_ingredients,
+        'avoided_ingredients': getattr(p, 'avoided_ingredients', []),
+        'good_ingredients':    getattr(p, 'good_ingredients', []),
+        'svd_score':           getattr(p, 'svd_score', 0.0),
+        'top_dimensions':      getattr(p, 'top_dimensions', []),
+        'url':                 f"https://www.sephora.com/product/{p.product_id}" if p.product_id else None,
     } for s, p in results]
 
 def register_routes(app):
@@ -724,4 +759,3 @@ def register_routes(app):
 
     if USE_LLM:
         from llm_routes import register_chat_route
-        register_chat_route(app, json_search)
