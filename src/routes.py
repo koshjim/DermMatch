@@ -952,6 +952,7 @@ def register_routes(app):
         sort_by = request.args.get("sort_by", "relevance")
         use_rag = request.args.get("use_rag", "true").strip().lower() not in {"false", "0", "no", "off"}
         debug_query = request.args.get("debug_query", "false").strip().lower() in {"true", "1", "yes", "on"}
+        include_expanded = request.args.get("include_expanded", "false").strip().lower() in {"true", "1", "yes", "on"}
 
         query_for_search = rag_expand_query(q) if use_rag else q
         results = ranked_product_search(
@@ -963,7 +964,7 @@ def register_routes(app):
             sort_by=sort_by,
         )
 
-        if debug_query:
+        if debug_query or include_expanded:
             return jsonify({
                 "original_query": q,
                 "rag_query": query_for_search,
@@ -976,7 +977,7 @@ def register_routes(app):
     def get_score_name():
         return jsonify({'Similarity Score': score_name})
 
-    @app.route("/api/products/summary")
+    @app.route("/api/products/summary", methods=["GET", "POST"])
     def products_summary():
         q = request.args.get("q", "").strip()
         if not q or not USE_LLM:
@@ -985,26 +986,32 @@ def register_routes(app):
         api_key = os.getenv("SPARK_API_KEY")
         if not api_key:
             return jsonify({"summary": "", "sources": [], "total_results": 0, "used_llm": False})
+        
 
-        category = request.args.get("category", "")
-        min_price = request.args.get("min_price", type=float)
-        max_price = request.args.get("max_price", type=float)
-        min_rating = request.args.get("min_rating", type=float)
-        sort_by = request.args.get("sort_by", "relevance")
 
-        expanded_q = rag_expand_query(q)
-        results = ranked_product_search(
-            expanded_q,
-            category=category,
-            min_price=min_price,
-            max_price=max_price,
-            min_rating=min_rating,
-            sort_by=sort_by,
-        )
+        body = request.get_json(silent=True) or {}
+        pre_results = body.get("results")  # list of result dicts, already ranked by IR
 
-        top = results[:5]
+        if pre_results is None:
+            # Fallback: run search ourselves (e.g. direct API calls / testing)
+            category   = request.args.get("category", "")
+            min_price  = request.args.get("min_price",  type=float)
+            max_price  = request.args.get("max_price",  type=float)
+            min_rating = request.args.get("min_rating", type=float)
+            sort_by    = request.args.get("sort_by", "relevance")
+            expanded_q = rag_expand_query(q)
+            pre_results = ranked_product_search(
+                expanded_q,
+                category=category,
+                min_price=min_price,
+                max_price=max_price,
+                min_rating=min_rating,
+                sort_by=sort_by,
+            )
+
+        top = pre_results[:20]
         if not top:
-            return jsonify({"summary": "", "sources": [], "total_results": 0, "used_llm": True})
+            return jsonify({"summary": "", "sources": [], "total_results": len(pre_results), "used_llm": True})
 
         context = "\n\n".join(
             f"Product: {p['name']} by {p['brand']}\n"
@@ -1023,9 +1030,11 @@ def register_routes(app):
                 {
                     "role": "system",
                     "content": (
-                        "You are a skincare expert. Given a user's search query and the top matching products, "
-                        "write a 2-3 sentence overview summarizing what kinds of products were found and why they "
-                        "might be relevant. Be concise and helpful. Do not list products by name individually."
+                       "You are a skincare expert. Given a user's search query and the top matching products "
+                        "returned by the search system, write a 2-3 sentence overview summarising what kinds of "
+                        "products were found and why they might be relevant. Be concise and helpful. "
+                        "Do not re-rank, add, or remove products — the search system's ranking is final. "
+                        "Do not list products by name individually."
                     ),
                 },
                 {
@@ -1037,7 +1046,7 @@ def register_routes(app):
             summary = (response.get("content") or "").strip()
         except Exception as exc:
             logger.warning("AI summary failed: %s", exc)
-            return jsonify({"summary": "", "sources": [], "total_results": len(results), "used_llm": True})
+            return jsonify({"summary": "", "sources": [], "total_results": len(pre_results), "used_llm": True})
 
         sources = [
             {"id": p.get("id"), "name": p["name"], "brand": p["brand"], "url": p.get("url")}
@@ -1047,7 +1056,7 @@ def register_routes(app):
         return jsonify({
             "summary": summary,
             "sources": sources,
-            "total_results": len(results),
+            "total_results": len(pre_results),
             "used_llm": True,
         })
 

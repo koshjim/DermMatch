@@ -6,10 +6,6 @@
  * to update the search bar and results above.
  */
 import { useState, useRef, useEffect } from 'react'
-<<<<<<< HEAD
-
-=======
->>>>>>> origin/main
 interface Message {
   text: string
   isUser: boolean

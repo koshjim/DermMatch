@@ -49,14 +49,14 @@ const CATEGORY_MAP: Record<string, string> = {
   'cleansing oil face oil': 'Cleansing Oils',
   'body lotion body oil': 'Moisturizers',
   'face creams': 'Moisturizers',
-  'facial toner skin toner':'Toners',
+  'facial toner skin toner': 'Toners',
   'eye cream dark circles': 'Eye Creams',
   'facial peels': 'Exfoliators',
   'exfoliating scrub exfoliator': 'Exfoliators',
-  'facial treatment masks':'Masks',
+  'facial treatment masks': 'Masks',
   'sheet masks': 'Masks',
   'face serum': 'Serums',
-  'face sunscreen':'Sunscreens',
+  'face sunscreen': 'Sunscreens',
   'lip balm lip care': 'Lip Treatments',
   'mini skincare': 'Mini Skincare'
 }
@@ -64,7 +64,7 @@ const CATEGORY_MAP: Record<string, string> = {
 function normalizeCategory(raw: string): string {
   return CATEGORY_MAP[raw.trim().toLowerCase()] ?? raw
 }
- 
+
 const CANONICAL_CATEGORIES = [
   'Cleansers',
   'Cleansing Oils',
@@ -206,7 +206,7 @@ function App(): JSX.Element {
   const [filters, setFilters] = useState<Filters>({ category: '', minPrice: '', maxPrice: '', minRating: '', sortBy: 'relevance' })
   const latestRequestId = useRef<number>(0)
 
-  
+
   // useEffect(() => {
   //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
   //   fetch('/api/categories').then(r => r.json()).then(setCategories)
@@ -216,18 +216,23 @@ function App(): JSX.Element {
   // useEffect(() => {
   //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
   //   fetch('/api/categories').then(r => r.json()).then(setCategories)
+  // }, [])
+
+  // useEffect(() => {
+  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
+  //   fetch('/api/categories').then(r => r.json()).then((raw: string[]) => {
+  //     // Normalize and deduplicate API categories, then merge with canonical list
+  //     const normalized = Array.from(new Set(raw.map(normalizeCategory)))
+  //     const canonical = new Set(CANONICAL_CATEGORIES)
+  //     // Put canonical categories first, then any extras from the API not in canonical
+  //     const extras = normalized.filter(c => !canonical.has(c))
+  //     setCategories([...CANONICAL_CATEGORIES, ...extras])
+  //   })
   // }, [])
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
-    fetch('/api/categories').then(r => r.json()).then((raw: string[]) => {
-      // Normalize and deduplicate API categories, then merge with canonical list
-      const normalized = Array.from(new Set(raw.map(normalizeCategory)))
-      const canonical = new Set(CANONICAL_CATEGORIES)
-      // Put canonical categories first, then any extras from the API not in canonical
-      const extras = normalized.filter(c => !canonical.has(c))
-      setCategories([...CANONICAL_CATEGORIES, ...extras])
-    })
+    setCategories(CANONICAL_CATEGORIES)
   }, [])
 
   const runSearch = async (term: string, currentFilters: Filters): Promise<void> => {
@@ -249,7 +254,7 @@ function App(): JSX.Element {
     if (currentFilters.minRating) params.set('min_rating', currentFilters.minRating)
     if (currentFilters.sortBy !== 'relevance') params.set('sort_by', currentFilters.sortBy)
 
-    const runSummary = async (): Promise<void> => {
+    const runSummary = async (irResults: Product[]): Promise<void> => {
       if (!useLlm) {
         setSummaryText('')
         setSummarySources([])
@@ -261,7 +266,28 @@ function App(): JSX.Element {
       setSummaryError('')
       setIsSummaryLoading(true)
       try {
-        const summaryResponse = await fetch(`/api/products/summary?${params.toString()}`)
+        const summaryResponse = await fetch(`/api/products/summary?${params.toString()}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            // Send only the fields the summary prompt needs; keeps the payload small.
+            body: JSON.stringify({
+              results: irResults.slice(0, 10).map(p => ({
+                id: p.id,
+                name: p.name,
+                brand: p.brand,
+                price: p.price,
+                rating: p.rating,
+                description: p.description,
+                safety_score: p.safety_score,
+                flagged_ingredients: p.flagged_ingredients ?? [],
+                good_ingredients: p.good_ingredients ?? [],
+                url: p.url ?? null,
+              })),
+            }),
+          }
+        )
+
         if (!summaryResponse.ok) {
           throw new Error(`Summary request failed with status ${summaryResponse.status}`)
         }
@@ -303,15 +329,30 @@ function App(): JSX.Element {
             const ragResponse = await fetch(`/api/products/search?${params}`)
             if (ragResponse.ok) {
               const ragData: Product[] = await ragResponse.json()
-              if (requestId === latestRequestId.current) setProducts(ragData)
+              if (requestId === latestRequestId.current) {
+                setProducts(ragData)
+                // Summary is fired after the refined results are confirmed, so
+                // it always describes the exact list the user is looking at.
+                void runSummary(ragData)
+              }
+            } else {
+              // RAG search failed — summarise the fast results instead
+              if (requestId === latestRequestId.current) {
+                void runSummary(fastData)
+              }
             }
-          } finally {
+          }
+          finally {
             if (requestId === latestRequestId.current) setIsRefining(false)
           }
         })()
+      } else {
+        // LLM off — no summary needed
+        setSummaryText('')
+        setSummarySources([])
+        setSummaryError('')
+        setIsSummaryLoading(false)
       }
-
-      void runSummary()
     } catch {
       if (requestId === latestRequestId.current) {
         setProducts([])
@@ -408,7 +449,7 @@ function App(): JSX.Element {
     <div className={`full-body-container ${useLlm ? 'llm-mode' : ''} ${hasSearched ? 'searching' : ''}`}>
       {/* Search bar (always shown) */}
       <div className="top-text">
-        
+
         <h1>DermMatch</h1>
         <p className="landing-tagline">Find clean, safe skincare — powered by ingredients</p>
         <div className="input-box" onClick={() => document.getElementById('search-input')?.focus()}>
@@ -436,7 +477,7 @@ function App(): JSX.Element {
             Search
           </button>
         </div>
-        
+
         {/* <p className="search-hint">Try a query:</p> */}
         <div className="example-query-grid">
           {exampleQueryRows.map((row, rowIndex) => (
@@ -498,11 +539,14 @@ function App(): JSX.Element {
 
             {!isSummaryLoading && summaryText && (
               <p className="ai-summary-text">{summaryText}</p>
+              
             )}
 
             {!isSummaryLoading && summaryError && (
               <p className="ai-summary-error">{summaryError}</p>
             )}
+
+            <span className="ai-summary-top-products">Top Recommended Products:</span>
 
             {!isSummaryLoading && summarySources.length > 0 && (
               <div className="ai-summary-sources" aria-label="Summary sources">
@@ -543,7 +587,7 @@ function App(): JSX.Element {
                   {didYouMean}
                 </button>
                 <span className="did-you-mean-copy">"?</span>
-                
+
               </>
             )}
           </p>
@@ -657,7 +701,7 @@ function App(): JSX.Element {
                       </div>
                     ))}
 
-                  {/* <p className="svd-section-label">▼ Bottom 5 Dimensions</p>
+                    {/* <p className="svd-section-label">▼ Bottom 5 Dimensions</p>
                   {product.top_dimensions.bottom.map((d, i) => (
                     <div key={i} className="svd-dim-row">
                       <span className="svd-neg">Dim {d.dim}</span>
@@ -665,8 +709,8 @@ function App(): JSX.Element {
                       <span className="svd-dim-terms">{d.top_terms.join(', ')}</span>
                     </div>
                   ))} */}
-                </div>
-              )}
+                  </div>
+                )}
               </details>
             )}
 

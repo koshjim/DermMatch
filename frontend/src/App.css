@@ -423,9 +423,17 @@ body {
   color: #6B7A6B;
 }
 
+.ai-summary-top-products {
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: #6B7A6B;
+  line-height: 1.45;
+  padding-top: 20px;
+}
+
 .ai-summary-text,
 .ai-summary-error {
-  margin: 0;
+  margin-bottom: 20px;
   font-size: 0.95rem;
   color: #2e412e;
   line-height: 1.45;
