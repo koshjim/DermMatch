@@ -495,7 +495,7 @@ def rag_expand_query(query):
     if not raw_query or not USE_LLM:
         return raw_query
 
-    api_key = os.getenv("SPARK_API_KEY")
+    api_key = os.getenv("API_KEY")
     if not api_key:
         return raw_query
 
@@ -949,81 +949,6 @@ def register_routes(app):
     def get_score_name():
         return jsonify({'Similarity Score': score_name})
 
-    @app.route("/api/products/summary")
-    def products_summary():
-        q = request.args.get("q", "").strip()
-        if not q or not USE_LLM:
-            return jsonify({"summary": "", "sources": [], "total_results": 0, "used_llm": False})
-
-        api_key = os.getenv("SPARK_API_KEY")
-        if not api_key:
-            return jsonify({"summary": "", "sources": [], "total_results": 0, "used_llm": False})
-
-        category = request.args.get("category", "")
-        min_price = request.args.get("min_price", type=float)
-        max_price = request.args.get("max_price", type=float)
-        min_rating = request.args.get("min_rating", type=float)
-        sort_by = request.args.get("sort_by", "relevance")
-
-        expanded_q = rag_expand_query(q)
-        results = ranked_product_search(
-            expanded_q,
-            category=category,
-            min_price=min_price,
-            max_price=max_price,
-            min_rating=min_rating,
-            sort_by=sort_by,
-        )
-
-        top = results[:5]
-        if not top:
-            return jsonify({"summary": "", "sources": [], "total_results": 0, "used_llm": True})
-
-        context = "\n\n".join(
-            f"Product: {p['name']} by {p['brand']}\n"
-            f"Rating: {p['rating']}\nPrice: ${p['price']}\n"
-            f"Safety Score: {p.get('safety_score', 'N/A')}\n"
-            f"Flagged Ingredients: {', '.join(p.get('flagged_ingredients') or []) or 'None'}\n"
-            f"Good Ingredients: {', '.join(p.get('good_ingredients') or []) or 'None'}\n"
-            f"Description: {(p['description'] or '')[:300]}"
-            for p in top
-        )
-
-        try:
-            from infosci_spark_client import LLMClient
-            client = LLMClient(api_key=api_key)
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a skincare expert. Given a user's search query and the top matching products, "
-                        "write a 2-3 sentence overview summarizing what kinds of products were found and why they "
-                        "might be relevant. Be concise and helpful. Do not list products by name individually."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"Search query: {q}\n\nTop results:\n{context}",
-                },
-            ]
-            response = client.chat(messages)
-            summary = (response.get("content") or "").strip()
-        except Exception as exc:
-            logger.warning("AI summary failed: %s", exc)
-            return jsonify({"summary": "", "sources": [], "total_results": len(results), "used_llm": True})
-
-        sources = [
-            {"id": p.get("id"), "name": p["name"], "brand": p["brand"], "url": p.get("url")}
-            for p in top
-        ]
-
-        return jsonify({
-            "summary": summary,
-            "sources": sources,
-            "total_results": len(results),
-            "used_llm": True,
-        })
-
     if USE_LLM:
         from llm_routes import register_chat_route
-        register_chat_route(app, lambda q: ranked_product_search(q))
+        register_chat_route(app, json_search)
