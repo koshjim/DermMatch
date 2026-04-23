@@ -93,14 +93,12 @@ def init_db():
         db.create_all()
 
         if Product.query.count() == 0:
-            # Assumes src/datacleaning.py has already cleaned and overwritten this CSV.
             file_path = os.path.join(current_directory, 'final_merged_dataset.csv')
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"Missing cleaned dataset: {file_path}")
 
             with open(file_path, newline='', encoding='utf-8') as csvfile:
                 reader = csv.DictReader(csvfile)
-
                 for row in reader:
                     desc = sanitize_description(row.get('description'))
                     high = (row.get('highlights') or "").strip()
@@ -159,6 +157,10 @@ def init_db():
 
             db.session.commit()
             print("Database initialized with products CSV data")
+
+        from routes import build_search_index
+        build_search_index()
+        print("Search index built successfully")
 
 
 init_db()
