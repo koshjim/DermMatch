@@ -1,5 +1,5 @@
 """
-Routes: React app serving and episode search API.
+Routes: React app serving and products search API.
 
 To enable AI chat, set USE_LLM = True below. See llm_routes.py for AI code.
 """
@@ -7,6 +7,7 @@ import json
 import os
 import csv
 import re
+import logging
 from functools import lru_cache
 import pandas as pd
 import numpy as np
@@ -16,6 +17,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import TruncatedSVD
 from sklearn.preprocessing import normalize
+
+logger = logging.getLogger(__name__)
 
 # ── AI toggle ────────────────────────────────────────────────────────────────
 # USE_LLM = False
@@ -32,6 +35,7 @@ def clean_product_description(text):
     ]
     cleaned = " ".join(kept)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    cleaned = re.sub(r'(?i)\bp\s+h\b', 'pH', cleaned)
 
     # Drop placeholder/noise descriptions like "wf", "n/a", "--", etc.
     cleaned_norm = normalize_search_text(cleaned)
@@ -629,6 +633,24 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     explicit_avoided  = query_skin_context['avoided_ingredients'][0]
     condition_avoided = query_skin_context['avoided_ingredients'][1]
 
+     # Detect if query matches a brand name directly
+    brand_matched_ids = set()
+
+    for i, p in enumerate(products):
+        brand_norm = normalize_search_text(p.brand_name or '')
+        if not brand_norm:
+            continue
+        if brand_norm in normalized_query or normalized_query in brand_norm:
+            brand_matched_ids.add(i)
+        elif levenshtein_distance(normalized_query, brand_norm) <= 2:
+            brand_matched_ids.add(i)
+
+    pure_brand_query = bool(brand_matched_ids) and len(normalized_query.split()) <= 2
+    # # If strong brand signal, restrict candidates to that brand
+    # pure_brand_query = bool(brand_matched_ids) and len(normalized_query.split()) <= 2
+    # if pure_brand_query:
+    #     candidate_indices = brand_matched_ids
+
     # print('=== FULL DEBUG ===')
     # print('1. avoided_ingredients:', query_skin_context['avoided_ingredients'])
 
@@ -688,14 +710,25 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     if not candidate_indices:
         candidate_indices = set(range(len(products)))
 
+    if pure_brand_query:
+        candidate_indices = brand_matched_ids
+
     query_vec = vectorizer.transform([" ".join(expanded_query_tokens)])
 
-    tfidf_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
+    initial_tfidf_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
+    rocchio_query_vec = rocchio_pseudo_feedback_query(
+        query_vec=query_vec,
+        tfidf_matrix=tfidf_matrix,
+        base_scores=initial_tfidf_sim,
+        candidate_indices=candidate_indices,
+    )
+
+    tfidf_sim = cosine_similarity(rocchio_query_vec, tfidf_matrix).flatten()
 
     svd_sim = np.zeros_like(tfidf_sim)
     query_lsa = None
     if n_components >= 2 and svd is not None:
-        query_lsa = normalize(svd.transform(query_vec))
+        query_lsa = normalize(svd.transform(rocchio_query_vec))
         svd_sim   = cosine_similarity(query_lsa, doc_lsa).flatten()
 
     similarities = 0.60 * tfidf_sim + 0.40 * svd_sim
@@ -810,6 +843,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
 
         rating_boost = (p.rating or 0) / 5.0
         loves_boost  = min((p.loves_count or 0) / 10000, 1.0)
+        brand_boost = 1.0 if i in brand_matched_ids else 0.0
 
         if pure_category_query:
             quality_add = 0.2 * rating_boost + 0.3 * loves_boost + 0.5 * (safety_score / 100.0)
@@ -817,7 +851,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
             quality_add = 0.02 * rating_boost + 0.02 * loves_boost + 0.5 * (safety_score / 100.0)
 
         ingredient_add = (alignment - 1.0) * 0.15
-        results.append((base_score + quality_add + ingredient_add, p))
+        results.append((base_score + quality_add + ingredient_add + brand_boost, p))
 
     if not results:
         return []
@@ -877,6 +911,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
 
 def register_routes(app):
     @app.route('/', defaults={'path': ''})
+    
     @app.route('/<path:path>')
     def serve(path):
         if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
@@ -887,6 +922,8 @@ def register_routes(app):
     @app.route("/api/config")
     def config():
         return jsonify({"use_llm": USE_LLM})
+    # Queries can be transformed upstream (e.g., by RAG), then ranked here
+    # with fuzzy expansion + Rocchio pseudo-relevance feedback.
     
     @app.route("/api/categories")
     def get_categories():
@@ -913,12 +950,107 @@ def register_routes(app):
         max_price = request.args.get("max_price", type=float)
         min_rating = request.args.get("min_rating", type=float)
         sort_by = request.args.get("sort_by", "relevance")
-        return jsonify(ranked_product_search(q, category=category, min_price=min_price, max_price=max_price, min_rating=min_rating, sort_by=sort_by))
+        use_rag = request.args.get("use_rag", "true").strip().lower() not in {"false", "0", "no", "off"}
+        debug_query = request.args.get("debug_query", "false").strip().lower() in {"true", "1", "yes", "on"}
+
+        query_for_search = rag_expand_query(q) if use_rag else q
+        results = ranked_product_search(
+            query_for_search,
+            category=category,
+            min_price=min_price,
+            max_price=max_price,
+            min_rating=min_rating,
+            sort_by=sort_by,
+        )
+
+        if debug_query:
+            return jsonify({
+                "original_query": q,
+                "rag_query": query_for_search,
+                "results": results,
+            })
+
+        return jsonify(results)
     
     @app.get('/score')
     def get_score_name():
         return jsonify({'Similarity Score': score_name})
 
+    @app.route("/api/products/summary")
+    def products_summary():
+        q = request.args.get("q", "").strip()
+        if not q or not USE_LLM:
+            return jsonify({"summary": "", "sources": [], "total_results": 0, "used_llm": False})
+
+        api_key = os.getenv("SPARK_API_KEY")
+        if not api_key:
+            return jsonify({"summary": "", "sources": [], "total_results": 0, "used_llm": False})
+
+        category = request.args.get("category", "")
+        min_price = request.args.get("min_price", type=float)
+        max_price = request.args.get("max_price", type=float)
+        min_rating = request.args.get("min_rating", type=float)
+        sort_by = request.args.get("sort_by", "relevance")
+
+        expanded_q = rag_expand_query(q)
+        results = ranked_product_search(
+            expanded_q,
+            category=category,
+            min_price=min_price,
+            max_price=max_price,
+            min_rating=min_rating,
+            sort_by=sort_by,
+        )
+
+        top = results[:5]
+        if not top:
+            return jsonify({"summary": "", "sources": [], "total_results": 0, "used_llm": True})
+
+        context = "\n\n".join(
+            f"Product: {p['name']} by {p['brand']}\n"
+            f"Rating: {p['rating']}\nPrice: ${p['price']}\n"
+            f"Safety Score: {p.get('safety_score', 'N/A')}\n"
+            f"Flagged Ingredients: {', '.join(p.get('flagged_ingredients') or []) or 'None'}\n"
+            f"Good Ingredients: {', '.join(p.get('good_ingredients') or []) or 'None'}\n"
+            f"Description: {(p['description'] or '')[:300]}"
+            for p in top
+        )
+
+        try:
+            from infosci_spark_client import LLMClient
+            client = LLMClient(api_key=api_key)
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a skincare expert. Given a user's search query and the top matching products, "
+                        "write a 2-3 sentence overview summarizing what kinds of products were found and why they "
+                        "might be relevant. Be concise and helpful. Do not list products by name individually."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Search query: {q}\n\nTop results:\n{context}",
+                },
+            ]
+            response = client.chat(messages)
+            summary = (response.get("content") or "").strip()
+        except Exception as exc:
+            logger.warning("AI summary failed: %s", exc)
+            return jsonify({"summary": "", "sources": [], "total_results": len(results), "used_llm": True})
+
+        sources = [
+            {"id": p.get("id"), "name": p["name"], "brand": p["brand"], "url": p.get("url")}
+            for p in top
+        ]
+
+        return jsonify({
+            "summary": summary,
+            "sources": sources,
+            "total_results": len(results),
+            "used_llm": True,
+        })
+
     if USE_LLM:
         from llm_routes import register_chat_route
-        register_chat_route(app, json_search)
+        register_chat_route(app, lambda q: ranked_product_search(q))
