@@ -195,7 +195,6 @@ function App(): JSX.Element {
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [hasSearched, setHasSearched] = useState<boolean>(false)
   const [isSearching, setIsSearching] = useState<boolean>(false)
-  const [isRefining, setIsRefining] = useState<boolean>(false)
   const [visibleCount, setVisibleCount] = useState<number>(24)
   const [products, setProducts] = useState<Product[]>([])
   const [summaryText, setSummaryText] = useState<string>('')
@@ -279,33 +278,15 @@ function App(): JSX.Element {
     }
 
     try {
-      // Phase 1: instant results without LLM query expansion
-      const fastParams = new URLSearchParams(params)
-      fastParams.set('use_rag', 'false')
-      const fastResponse = await fetch(`/api/products/search?${fastParams}`)
-      if (!fastResponse.ok) throw new Error(`Search failed: ${fastResponse.status}`)
-      const fastData: Product[] = await fastResponse.json()
-      if (requestId !== latestRequestId.current) return
-      setProducts(fastData)
-      setIsSearching(false)
-
-      // Phase 2: silently refine with LLM-expanded query in background
-      if (useLlm) {
-        setIsRefining(true)
-        void (async () => {
-          try {
-            const ragResponse = await fetch(`/api/products/search?${params}`)
-            if (ragResponse.ok) {
-              const ragData: Product[] = await ragResponse.json()
-              if (requestId === latestRequestId.current) setProducts(ragData)
-            }
-          } finally {
-            if (requestId === latestRequestId.current) setIsRefining(false)
-          }
-        })()
+      const response = await fetch(`/api/products/search?${params}`)
+      if (!response.ok) {
+        throw new Error(`Search request failed with status ${response.status}`)
       }
-
-      void runSummary()
+      const data: Product[] = await response.json()
+      if (requestId === latestRequestId.current) {
+        setProducts(data)
+        void runSummary()
+      }
     } catch {
       if (requestId === latestRequestId.current) {
         setProducts([])
@@ -313,6 +294,9 @@ function App(): JSX.Element {
         setSummarySources([])
         setSummaryError('')
         setIsSummaryLoading(false)
+      }
+    } finally {
+      if (requestId === latestRequestId.current) {
         setIsSearching(false)
       }
     }
@@ -520,7 +504,6 @@ function App(): JSX.Element {
         {searchTerm.trim() && !isSearching && products.length > 0 && (
           <p className="result-count">
             {products.length} result{products.length !== 1 ? 's' : ''} for "{searchTerm}".
-            {isRefining && <span className="refining-badge"> Refining with AI…</span>}
             {didYouMean && (
               <>
                 {' '}
