@@ -146,7 +146,6 @@ def init_db():
             db.session.commit()
             print("Database initialized with products CSV data")
 
-
 init_db()
 
 if __name__ == '__main__':
