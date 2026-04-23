@@ -424,11 +424,12 @@ body {
 }
 
 .ai-summary-top-products {
+  display: block;
   font-weight: 800;
   font-size: 0.9rem;
   color: #6B7A6B;
   line-height: 1.45;
-  padding-top: 20px;
+  padding-top: 8px;
 }
 
 .ai-summary-text,
@@ -437,6 +438,10 @@ body {
   font-size: 0.95rem;
   color: #2e412e;
   line-height: 1.45;
+}
+
+.ai-summary-text strong {
+  font-weight: 500 !important;
 }
 
 .ai-summary-error {
@@ -465,6 +470,19 @@ body {
 @keyframes ai-summary-shimmer {
   0% { background-position: 100% 0; }
   100% { background-position: -100% 0; }
+}
+
+.ai-summary-source-brand {
+  font-weight: 500;
+}
+
+.ai-summary-source-divider {
+  margin: 0 3px;
+  opacity: 0.7;
+}
+
+.ai-summary-source-name {
+  font-weight: 400;
 }
 
 .ai-summary-sources {

@@ -43,6 +43,12 @@ const QUERY_DICTIONARY = [
   'oil',
   'dry',
   'skin',
+  "fine",
+  "lines",
+  "dark",
+  "circles",
+  "pores",
+  "perfume"
 ]
 const CATEGORY_MAP: Record<string, string> = {
   'face wash facial cleanser': 'Cleansers',
@@ -102,15 +108,30 @@ function levenshteinDistance(left: string, right: string): number {
   return matrix[left.length][right.length]
 }
 
-function getSuggestedQuery(query: string): string | null {
+function getSuggestedQuery(query: string, products: Product[]): string | null {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return null
 
+  const knownBrands = Array.from(new Set(
+    products.map(p => p.brand?.trim().toLowerCase()).filter(Boolean)
+  ))
+
   const tokens = normalized.split(/\s+/)
+  const isKnownBrand = knownBrands.some(brand => {
+    if (normalized.startsWith(brand)) return true
+    if (levenshteinDistance(normalized, brand) <= 2) return true
+    // Check if the query starts with something close to a brand name
+    const queryPrefix = normalized.split(' ').slice(0, brand.split(' ').length).join(' ')
+    return levenshteinDistance(queryPrefix, brand) <= 1
+  })
+
+
+  if (isKnownBrand) return null
+
   let changed = false
 
   const corrected = tokens.map((token) => {
-    if (token.length < 4 || QUERY_DICTIONARY.includes(token)) {
+    if (token.length <= 4 || QUERY_DICTIONARY.includes(token)) {
       return token
     }
 
@@ -186,6 +207,15 @@ function SafetyInfo({ product }: { product: Product }) {
         )}
       </div>
     </details>
+  )
+}
+
+function renderWithBold(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*.*?\*\*)/g)
+  return parts.map((part, i) =>
+    part.startsWith('**') && part.endsWith('**')
+      ? <strong key={i}>{part.slice(2, -2)}</strong>
+      : part
   )
 }
 
@@ -443,7 +473,7 @@ function App(): JSX.Element {
     exampleQueries.slice(0, splitIndex),
     exampleQueries.slice(splitIndex),
   ].filter((row) => row.length > 0)
-  const didYouMean = getSuggestedQuery(searchTerm)
+  const didYouMean = getSuggestedQuery(searchTerm, products)
 
   return (
     <div className={`full-body-container ${useLlm ? 'llm-mode' : ''} ${hasSearched ? 'searching' : ''}`}>
@@ -538,8 +568,8 @@ function App(): JSX.Element {
             )}
 
             {!isSummaryLoading && summaryText && (
-              <p className="ai-summary-text">{summaryText}</p>
-              
+              <p className="ai-summary-text">{renderWithBold(summaryText)}</p>
+
             )}
 
             {!isSummaryLoading && summaryError && (
@@ -550,13 +580,28 @@ function App(): JSX.Element {
 
             {!isSummaryLoading && summarySources.length > 0 && (
               <div className="ai-summary-sources" aria-label="Summary sources">
-                {summarySources.map((source) => (
+                {/* {summarySources.map((source) => (
                   source.url ? (
                     <a key={`${source.id}-${source.name}`} href={source.url} target="_blank" rel="noreferrer" className="ai-summary-source-link">
                       {source.name}
                     </a>
                   ) : (
                     <span key={`${source.id}-${source.name}`} className="ai-summary-source-link muted">{source.name}</span>
+                  )
+                ))} */}
+                {summarySources.map((source) => (
+                  source.url ? (
+                    <a key={`${source.id}-${source.name}`} href={source.url} target="_blank" rel="noreferrer" className="ai-summary-source-link">
+                      <span className="ai-summary-source-brand">{source.brand}</span>
+                      <span className="ai-summary-source-divider">·</span>
+                      <span className="ai-summary-source-name">{source.name}</span>
+                    </a>
+                  ) : (
+                    <span key={`${source.id}-${source.name}`} className="ai-summary-source-link muted">
+                      <span className="ai-summary-source-brand">{source.brand}</span>
+                      <span className="ai-summary-source-divider">-</span>
+                      <span className="ai-summary-source-name">{source.name}</span>
+                    </span>
                   )
                 ))}
               </div>

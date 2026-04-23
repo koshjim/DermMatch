@@ -262,11 +262,12 @@ def fuzzy_expand_token(token, vocab, max_distance=2):
     """Return vocab terms that fuzzy-match a token not found in vocab."""
     if token in vocab:
         return [token]
+    effective_max = 1 if len(token) <= 4 else max_distance
     matches = []
     for v in vocab:
-        if abs(len(v) - len(token)) > max_distance:
+        if abs(len(v) - len(token)) > effective_max:
             continue
-        if levenshtein_distance(token, v) <= max_distance:
+        if levenshtein_distance(token, v) <= effective_max:
             matches.append(v)
     return matches
 
@@ -511,7 +512,7 @@ def rag_expand_query(query):
             {
                 "role": "system",
                 "content": (
-                    "You rewrite search queries for skincare product retrieval. "
+                    "You rewrite and expand user search queries for skincare product retrieval. "
                     "Output exactly one short expanded query, no explanation. "
                     "Preserve hard constraints and negations such as without/avoid/no/free of. "
                     "Keep brand, category, skin concerns, and ingredient intent explicit."
@@ -600,7 +601,7 @@ def rocchio_pseudo_feedback_query(
     return query_vec
 
 
-def ranked_product_search(query, category='', min_price=None, max_price=None, min_rating=None, sort_by='relevance'):
+def ranked_product_search(query, original_query=None, category='', min_price=None, max_price=None, min_rating=None, sort_by='relevance'):
     global score_name
 
     if not query or not query.strip():
@@ -633,19 +634,24 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     explicit_avoided  = query_skin_context['avoided_ingredients'][0]
     condition_avoided = query_skin_context['avoided_ingredients'][1]
 
-     # Detect if query matches a brand name directly
+    # Detect if query matches a brand name directly
+    brand_detection_query = normalize_search_text(original_query or query)
     brand_matched_ids = set()
 
     for i, p in enumerate(products):
         brand_norm = normalize_search_text(p.brand_name or '')
         if not brand_norm:
             continue
-        if brand_norm in normalized_query or normalized_query in brand_norm:
+        if brand_norm in brand_detection_query or brand_detection_query in brand_norm:
             brand_matched_ids.add(i)
-        elif levenshtein_distance(normalized_query, brand_norm) <= 2:
+        elif levenshtein_distance(brand_detection_query, brand_norm) <= 2:
             brand_matched_ids.add(i)
 
-    pure_brand_query = bool(brand_matched_ids) and len(normalized_query.split()) <= 2
+    pure_brand_query = bool(brand_matched_ids) and len(brand_detection_query.split()) <= 2
+
+    if pure_brand_query:
+        candidate_indices = brand_matched_ids
+
     # # If strong brand signal, restrict candidates to that brand
     # pure_brand_query = bool(brand_matched_ids) and len(normalized_query.split()) <= 2
     # if pure_brand_query:
@@ -765,7 +771,14 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
 
     for i, p in enumerate(products):
         product_category_text = f"{p.primary_category or ''} {p.secondary_category or ''} {p.category or ''}".lower()
-        category_match = bool(query_category and query_category in product_category_text)
+        category_match = bool(query_category and (
+        query_category in product_category_text or
+        any(phrase_tokens_match(
+                normalize_search_text(f"{p.product_name or ''} {p.highlights or ''}"),
+                normalize_search_text(kw)
+            )
+            for kw in CATEGORY_KEYWORDS.get(query_category, []))
+        ))
 
         if i not in candidate_indices:
             continue
@@ -957,6 +970,7 @@ def register_routes(app):
         query_for_search = rag_expand_query(q) if use_rag else q
         results = ranked_product_search(
             query_for_search,
+            original_query=q,
             category=category,
             min_price=min_price,
             max_price=max_price,
@@ -1009,7 +1023,7 @@ def register_routes(app):
                 sort_by=sort_by,
             )
 
-        top = pre_results[:20]
+        top = pre_results[:5]
         if not top:
             return jsonify({"summary": "", "sources": [], "total_results": len(pre_results), "used_llm": True})
 
@@ -1031,10 +1045,14 @@ def register_routes(app):
                     "role": "system",
                     "content": (
                        "You are a skincare expert. Given a user's search query and the top matching products "
-                        "returned by the search system, write a 2-3 sentence overview summarising what kinds of "
-                        "products were found and why they might be relevant. Be concise and helpful. "
-                        "Do not re-rank, add, or remove products — the search system's ranking is final. "
-                        "Do not list products by name individually."
+                        "returned by the search system, write a 3-5 sentence overview summarising what kinds of "
+                        "products were found and the pros of each product based on information about the user's skin type."
+                        "If no further information is given about the user's preferences, suggest 3 top products that differ in their ingredients."
+                        # "Do not re-rank, add, or remove products — the search system's ranking is final. "
+                        # "Do not list products by name individually."
+                        "When mentioning specific product names, wrap them in **double asterisks** for bold formatting."
+                        "Be concise and helpful by referencing specific products and their ingredients. "
+                        "Do not include"
                     ),
                 },
                 {
@@ -1063,3 +1081,4 @@ def register_routes(app):
     if USE_LLM:
         from llm_routes import register_chat_route
         register_chat_route(app, lambda q: ranked_product_search(q))
+
