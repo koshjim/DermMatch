@@ -26,31 +26,54 @@ def _is_auth_error(exc):
     return status_code == 401
 
 
-def llm_search_decision(client, user_message):
-    """Ask the LLM whether to search the DB and which word to use."""
+def llm_search_decision(client, user_message, history=None):
+    """Ask the LLM whether product search is needed and return a reformulated search query.
+
+    Returns (use_search: bool, search_query: str | None).
+    The search_query is a standalone IR-friendly query built from conversation context.
+    """
+    history_text = ""
+    if history:
+        lines = []
+        for m in history[-6:]:
+            role = "User" if m.get("isUser") else "Assistant"
+            lines.append(f"{role}: {m.get('text', '')}")
+        history_text = "\n".join(lines)
+
+    conversation = f"Conversation so far:\n{history_text}\n\n" if history_text else ""
+
     messages = [
         {
             "role": "system",
             "content": (
-                "You have access to a database of Sephora skincare products, descriptions, ingredients, "
-               "and product review ratings. Search is by a single word in the product name or description. "
-                "Reply with exactly: YES followed by one space and ONE word to search (e.g. YES wedding), "
-                "or NO if the question does not need product data."
+                "You help route queries to a Sephora skincare product database. "
+                "Given the conversation history and the latest user message, decide if product data is needed. "
+                "If YES, also rewrite the query as a short, standalone, IR-friendly search phrase "
+                "that captures the full intent (e.g. include product type, skin concern, constraints like price or ingredients). "
+                "Reply in exactly this format:\n"
+                "YES: <reformulated query>\n"
+                "or\n"
+                "NO"
             ),
         },
-        {"role": "user", "content": user_message},
+        {
+            "role": "user",
+            "content": f"{conversation}Latest message: {user_message}",
+        },
     ]
     response = client.chat(messages)
-    content = (response.get("content") or "").strip().upper()
+    content = (response.get("content") or "").strip()
     logger.info(f"LLM search decision: {content}")
-    if re.search(r"\bNO\b", content) and not re.search(r"\bYES\b", content):
+
+    upper = content.upper()
+    if re.match(r"NO\b", upper):
         return False, None
-    yes_match = re.search(r"\bYES\s+(\w+)", content)
+
+    yes_match = re.match(r"YES\s*:\s*(.+)", content, re.IGNORECASE)
     if yes_match:
-        return True, yes_match.group(1).lower()
-    if re.search(r"\bYES\b", content):
-        return True, "Kardashian"
-    return False, None
+        return True, yes_match.group(1).strip()
+
+    return True, user_message
 
 
 def register_chat_route(app, json_search):
@@ -60,18 +83,19 @@ def register_chat_route(app, json_search):
     def chat():
         data = request.get_json() or {}
         user_message = (data.get("message") or "").strip()
+        history = data.get("history") or []
         if not user_message:
             return jsonify({"error": "Message is required"}), 400
         if len(user_message) > MAX_CHAT_MESSAGE_LENGTH:
             return jsonify({"error": f"Message must be {MAX_CHAT_MESSAGE_LENGTH} characters or fewer"}), 400
 
-        api_key = os.getenv("API_KEY")
+        api_key = os.getenv("SPARK_API_KEY")
         if not api_key:
-            return jsonify({"error": "SPARK_API key not set — add API_KEY to your .env file"}), 500
+            return jsonify({"error": "API key not set — add SPARK_API_KEY to your .env file"}), 500
 
         client = LLMClient(api_key=api_key)
         try:
-            use_search, search_term = llm_search_decision(client, user_message)
+            use_search, search_query = llm_search_decision(client, user_message, history)
         except Exception as e:
             if _is_auth_error(e):
                 logger.error("LLM auth failed during search decision: %s", e)
@@ -79,10 +103,20 @@ def register_chat_route(app, json_search):
             logger.exception("LLM search decision failed")
             return jsonify({"error": "LLM request failed before streaming response."}), 502
 
+        prior = [
+            {"role": "assistant" if m.get("isUser") is False else "user", "content": m["text"]}
+            for m in history[-6:]
+            if m.get("text")
+        ]
+
         if use_search:
-            products = json_search(search_term or "skincare")
+            products = json_search(search_query or user_message)
             context_text = "\n\n---\n\n".join(
-                f"Name: {prod['name']}\nBrand: {prod['brand']}\nPrice: {prod['price']}\nDescription: {prod['description']}\nRating: {prod['rating']}"
+                f"Title: {prod['name']}\nBrand: {prod['brand']}\nRating: {prod['rating']}\n"
+                f"Price: ${prod.get('price', 'N/A')}\n"
+                f"Safety Score: {prod.get('safety_score', 'N/A')}\n"
+                f"Flagged Ingredients: {', '.join(prod.get('flagged_ingredients') or []) or 'None'}\n"
+                f"Description: {(prod['description'] or '')[:300]}"
                 for prod in products
             ) or "No matching products found."
             messages = [
@@ -93,6 +127,7 @@ def register_chat_route(app, json_search):
                         f"Keep the answer concise and under {MAX_CHAT_RESPONSE_LENGTH} characters."
                     ),
                 },
+                *prior,
                 {"role": "user", "content": f"Product information:\n\n{context_text}\n\nUser question: {user_message}"},
             ]
         else:
@@ -104,12 +139,13 @@ def register_chat_route(app, json_search):
                         f"Keep the answer concise and under {MAX_CHAT_RESPONSE_LENGTH} characters."
                     ),
                 },
+                *prior,
                 {"role": "user", "content": user_message},
             ]
 
         def generate():
-            if use_search and search_term:
-                yield f"data: {json.dumps({'search_term': search_term})}\n\n"
+            if use_search:
+                yield f"data: {json.dumps({'search_term': user_message})}\n\n"
             try:
                 emitted_length = 0
                 truncated = False
