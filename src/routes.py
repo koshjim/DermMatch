@@ -633,6 +633,24 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     explicit_avoided  = query_skin_context['avoided_ingredients'][0]
     condition_avoided = query_skin_context['avoided_ingredients'][1]
 
+     # Detect if query matches a brand name directly
+    brand_matched_ids = set()
+
+    for i, p in enumerate(products):
+        brand_norm = normalize_search_text(p.brand_name or '')
+        if not brand_norm:
+            continue
+        if brand_norm in normalized_query or normalized_query in brand_norm:
+            brand_matched_ids.add(i)
+        elif levenshtein_distance(normalized_query, brand_norm) <= 2:
+            brand_matched_ids.add(i)
+
+    pure_brand_query = bool(brand_matched_ids) and len(normalized_query.split()) <= 2
+    # # If strong brand signal, restrict candidates to that brand
+    # pure_brand_query = bool(brand_matched_ids) and len(normalized_query.split()) <= 2
+    # if pure_brand_query:
+    #     candidate_indices = brand_matched_ids
+
     # print('=== FULL DEBUG ===')
     # print('1. avoided_ingredients:', query_skin_context['avoided_ingredients'])
 
@@ -691,6 +709,9 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
     # Fall back to all products for very short/unmatched queries
     if not candidate_indices:
         candidate_indices = set(range(len(products)))
+
+    if pure_brand_query:
+        candidate_indices = brand_matched_ids
 
     query_vec = vectorizer.transform([" ".join(expanded_query_tokens)])
 
@@ -817,6 +838,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
 
         rating_boost = (p.rating or 0) / 5.0
         loves_boost  = min((p.loves_count or 0) / 10000, 1.0)
+        brand_boost = 1.0 if i in brand_matched_ids else 0.0
 
         if pure_category_query:
             quality_add = 0.2 * rating_boost + 0.3 * loves_boost + 0.5 * (safety_score / 100.0)
@@ -824,7 +846,7 @@ def ranked_product_search(query, category='', min_price=None, max_price=None, mi
             quality_add = 0.02 * rating_boost + 0.02 * loves_boost + 0.5 * (safety_score / 100.0)
 
         ingredient_add = (alignment - 1.0) * 0.15
-        results.append((base_score + quality_add + ingredient_add, p))
+        results.append((base_score + quality_add + ingredient_add + brand_boost, p))
 
     if not results:
         return []
