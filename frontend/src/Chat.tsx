@@ -6,6 +6,8 @@
  * to update the search bar and results above.
  */
 import { useState, useRef, useEffect } from 'react'
+import SearchIcon from './assets/mag.png'
+
 interface Message {
   text: string
   isUser: boolean
@@ -13,25 +15,13 @@ interface Message {
 
 interface ChatProps {
   onSearchTerm: (term: string) => void
-  minimized?: boolean
 }
 
-const MAX_MESSAGE_LENGTH = 150
-
-function Chat({ onSearchTerm, minimized = false }: ChatProps): JSX.Element {
+function Chat({ onSearchTerm }: ChatProps): JSX.Element {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
-  const [isOpen, setIsOpen] = useState<boolean>(!minimized)
   const bottomRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (minimized) {
-      setIsOpen(false)
-    } else {
-      setIsOpen(true)
-    }
-  }, [minimized])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -40,7 +30,7 @@ function Chat({ onSearchTerm, minimized = false }: ChatProps): JSX.Element {
   const sendMessage = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     const text = input.trim()
-    if (!text || loading || text.length > MAX_MESSAGE_LENGTH) return
+    if (!text || loading) return
 
     setMessages(prev => [...prev, { text, isUser: true }])
     setInput('')
@@ -50,7 +40,7 @@ function Chat({ onSearchTerm, minimized = false }: ChatProps): JSX.Element {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, history: messages }),
+        body: JSON.stringify({ message: text }),
       })
 
       if (!response.ok) {
@@ -99,47 +89,8 @@ function Chat({ onSearchTerm, minimized = false }: ChatProps): JSX.Element {
     }
   }
 
-  if (!isOpen) {
-    return (
-      <button
-        type="button"
-        className="chat-fab"
-        aria-label="Open AI chatbot"
-        onClick={() => setIsOpen(true)}
-      >
-        <span className="chat-fab-icon" aria-hidden="true">💬</span>
-      </button>
-    )
-  }
-
   return (
-    <div className="chat-widget" role="complementary" aria-label="AI chat">
-      <div
-        className="chat-header"
-        role="button"
-        tabIndex={0}
-        aria-label="Minimize chat"
-        onClick={() => setIsOpen(false)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            setIsOpen(false)
-          }
-        }}
-      >
-        <div className="chat-header-title-wrap">
-          <p className="chat-header-title">DermMatch AI Chatbot</p>
-        </div>
-        <button
-          type="button"
-          className="chat-close-button"
-          aria-label="Close chat"
-          onClick={() => setIsOpen(false)}
-        >
-          ×
-        </button>
-      </div>
-
+    <>
       <div id="messages">
         {messages.map((msg, i) => (
           <div key={i} className={`message ${msg.isUser ? 'user' : 'assistant'}`}>
@@ -158,27 +109,19 @@ function Chat({ onSearchTerm, minimized = false }: ChatProps): JSX.Element {
 
       <div className="chat-bar">
         <form className="input-row" onSubmit={sendMessage}>
-          {/* <img src={SearchIcon} alt="" /> */}
-          <textarea
-            placeholder="Ask AI about a skincare product, ingredient, or skin concern..."
+          <img src={SearchIcon} alt="" />
+          <input
+            type="text"
+            placeholder="Ask the AI about Keeping Up with the Kardashians"
             value={input}
-            onChange={e => setInput(e.target.value.slice(0, MAX_MESSAGE_LENGTH))}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                e.currentTarget.form?.requestSubmit()
-              }
-            }}
+            onChange={e => setInput(e.target.value)}
             disabled={loading}
             autoComplete="off"
-            rows={2}
-            maxLength={MAX_MESSAGE_LENGTH}
           />
           <button type="submit" disabled={loading}>Send</button>
         </form>
-        <p className="chat-char-count">{input.length}/{MAX_MESSAGE_LENGTH}</p>
       </div>
-    </div>
+    </>
   )
 }
 
