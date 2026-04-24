@@ -13,12 +13,52 @@ import re
 import logging
 from flask import request, jsonify, Response, stream_with_context
 from infosci_spark_client import LLMClient
+import csv
 
 logger = logging.getLogger(__name__)
 
 MAX_CHAT_MESSAGE_LENGTH = 200
-MAX_CHAT_RESPONSE_LENGTH = 300
+MAX_CHAT_RESPONSE_LENGTH = 400
 
+_skin_condition_rules: dict = {}
+
+def _load_skin_condition_rules():
+    global _skin_condition_rules
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(current_directory, 'ingredients_skin_conditions.csv')
+    if not os.path.exists(file_path):
+        return
+    with open(file_path, newline='', encoding='utf-8') as f:
+        for row in csv.DictReader(f):
+            raw = (row.get('Skin_Condition/Concern') or '').strip()
+            if not raw:
+                continue
+            aliases = [a.strip().lower() for a in raw.split(',') if a.strip()]
+            canonical = aliases[0]
+            good = (row.get('Good_Ingredients') or '').replace('\n', ',').strip()
+            bad  = (row.get('Bad_Ingredients')  or '').replace('\n', ',').strip()
+            for alias in aliases:
+                _skin_condition_rules[alias] = {
+                    'canonical': canonical,
+                    'good': good,
+                    'bad':  bad,
+                }
+
+_load_skin_condition_rules()
+
+def get_skin_context_for_message(text: str) -> str:
+    normalized = text.lower()
+    seen = set()
+    blocks = []
+    for alias, data in _skin_condition_rules.items():
+        if alias in normalized and data['canonical'] not in seen:
+            seen.add(data['canonical'])
+            blocks.append(
+                f"Skin condition: {data['canonical']}\n"
+                f"  Good ingredients: {data['good']}\n"
+                f"  Ingredients to avoid: {data['bad']}"
+            )
+    return "\n\n".join(blocks)
 
 def _is_auth_error(exc):
     """Return True when the upstream LLM provider rejected authentication."""
@@ -85,6 +125,13 @@ def register_chat_route(app, json_search):
         data = request.get_json() or {}
         user_message = (data.get("message") or "").strip()
         history = data.get("history") or []
+
+        skin_context = get_skin_context_for_message(user_message)
+        skin_guidance = (
+            f"\n\nSkin condition ingredient guidance (use this to evaluate products):\n{skin_context}"
+            if skin_context else ""
+        )
+        
         if not user_message:
             return jsonify({"error": "Message is required"}), 400
         if len(user_message) > MAX_CHAT_MESSAGE_LENGTH:
@@ -118,14 +165,18 @@ def register_chat_route(app, json_search):
                 f"Safety Score: {prod.get('safety_score', 'N/A')}\n"
                 f"Flagged Ingredients: {', '.join(prod.get('flagged_ingredients') or []) or 'None'}\n"
                 f"Description: {(prod['description'] or '')[:300]}"
+                f"Ingredients: {(prod['ingredients'] or '')[:300]}"
+                f"Avoided Ingredients: {(prod['avoided_ingredients'] or '')[:300]}"
+                f"Good Ingredients: {(prod['good_ingredients'] or '')[:300]}"
                 for prod in products
             ) or "No matching products found."
             messages = [
                 {
                     "role": "system",
                     "content": (
-                        "Answer questions about Sephora skincare products using only the product information provided. "
+                       "Answer questions about Sephora skincare products using only the product information provided. "
                         f"Keep the answer concise and under {MAX_CHAT_RESPONSE_LENGTH} characters."
+                        f"{skin_guidance}"
                     ),
                 },
                 *prior,
@@ -136,8 +187,9 @@ def register_chat_route(app, json_search):
                 {
                     "role": "system",
                     "content": (
-                        "You are a helpful assistant for Sephora skincare product questions. "
+                       "You are a helpful assistant for Sephora skincare product questions. "
                         f"Keep the answer concise and under {MAX_CHAT_RESPONSE_LENGTH} characters."
+                        f"{skin_guidance}"
                     ),
                 },
                 *prior,
@@ -146,7 +198,7 @@ def register_chat_route(app, json_search):
 
         def generate():
             if use_search:
-                yield f"data: {json.dumps({'search_term': user_message})}\n\n"
+                yield f"data: {json.dumps({'search_term': search_query})}\n\n"
             try:
                 emitted_length = 0
                 truncated = False

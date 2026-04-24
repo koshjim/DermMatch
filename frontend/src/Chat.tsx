@@ -13,12 +13,13 @@ interface Message {
 
 interface ChatProps {
   onSearchTerm: (term: string) => void
+  currentSearchTerm: string
   minimized?: boolean
 }
 
 const MAX_MESSAGE_LENGTH = 150
 
-function Chat({ onSearchTerm, minimized = false }: ChatProps): JSX.Element {
+function Chat({ onSearchTerm, currentSearchTerm, minimized = false }: ChatProps): JSX.Element {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
@@ -78,7 +79,7 @@ function Chat({ onSearchTerm, minimized = false }: ChatProps): JSX.Element {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6))
-              if (data.search_term !== undefined) {
+              if (data.search_term !== undefined && !currentSearchTerm) {
                 onSearchTerm(data.search_term)
               }
               if (data.error) {
