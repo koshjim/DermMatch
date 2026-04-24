@@ -432,7 +432,7 @@ body {
 .ai-summary-top-products {
   display: block;
   font-weight: 800;
-  font-size: 0.9rem;
+  font-size: 1rem;
   color: #6B7A6B;
   line-height: 1.45;
   padding-top: 8px;
@@ -447,9 +447,9 @@ body {
 }
 
 .ai-summary-text strong {
-  font-weight: 500;
-  color: #3d6e3d;
-  font-style: oblique;
+  font-weight: 550;
+  color: #3A6B4A;
+  /* font-style: oblique; */
 }
 
 .ai-summary-error {
@@ -571,6 +571,7 @@ body {
   gap: 8px;
   margin-bottom: 6px;
   font-weight: 700;
+  font-size: 1.2rem;
   color: #6B7A6B;
 }
 
