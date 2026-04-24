@@ -478,7 +478,7 @@ function App(): JSX.Element {
     'toner for dry, acne-prone skin',
     'moisturizer for eczema',
     'cleanser with niacinamide',
-    'exfoliator safe for sensitive skin',
+    'i have acne problems. find me a serum that targets that',
   ]
   const splitIndex = Math.ceil(exampleQueries.length / 2)
   const exampleQueryRows = [
