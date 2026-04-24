@@ -161,7 +161,7 @@ function Chat({ onSearchTerm, currentSearchTerm, minimized = false }: ChatProps)
         <form className="input-row" onSubmit={sendMessage}>
           {/* <img src={SearchIcon} alt="" /> */}
           <textarea
-            placeholder="Ask AI about a skincare product, ingredient, or skin concern..."
+            placeholder="Ask about a skincare product, an ingredient, or skin concern"
             value={input}
             onChange={e => setInput(e.target.value.slice(0, MAX_MESSAGE_LENGTH))}
             onKeyDown={(e) => {
@@ -177,7 +177,6 @@ function Chat({ onSearchTerm, currentSearchTerm, minimized = false }: ChatProps)
           />
           <button type="submit" disabled={loading}>Send</button>
         </form>
-        <p className="chat-char-count">{input.length}/{MAX_MESSAGE_LENGTH}</p>
       </div>
     </div>
   )
