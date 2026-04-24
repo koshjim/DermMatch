@@ -43,6 +43,46 @@ const QUERY_DICTIONARY = [
   'oil',
   'dry',
   'skin',
+  "fine",
+  "lines",
+  "dark",
+  "circles",
+  "pores",
+  "perfume"
+]
+const CATEGORY_MAP: Record<string, string> = {
+  'face wash facial cleanser': 'Cleansers',
+  'cleansing oil face oil': 'Cleansing Oils',
+  'body lotion body oil': 'Moisturizers',
+  'face creams': 'Moisturizers',
+  'facial toner skin toner': 'Toners',
+  'eye cream dark circles': 'Eye Creams',
+  'facial peels': 'Exfoliators',
+  'exfoliating scrub exfoliator': 'Exfoliators',
+  'facial treatment masks': 'Masks',
+  'sheet masks': 'Masks',
+  'face serum': 'Serums',
+  'face sunscreen': 'Sunscreens',
+  'lip balm lip care': 'Lip Treatments',
+  'mini skincare': 'Mini Skincare'
+}
+
+function normalizeCategory(raw: string): string {
+  return CATEGORY_MAP[raw.trim().toLowerCase()] ?? raw
+}
+
+const CANONICAL_CATEGORIES = [
+  'Cleansers',
+  'Cleansing Oils',
+  'Moisturizers',
+  'Toners',
+  'Eye Creams',
+  'Exfoliators',
+  'Masks',
+  'Serums',
+  'Sunscreens',
+  'Lip Treatments',
+  'Mini Skincare'
 ]
 
 function levenshteinDistance(left: string, right: string): number {
@@ -68,15 +108,30 @@ function levenshteinDistance(left: string, right: string): number {
   return matrix[left.length][right.length]
 }
 
-function getSuggestedQuery(query: string): string | null {
+function getSuggestedQuery(query: string, products: Product[]): string | null {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return null
 
+  const knownBrands = Array.from(new Set(
+    products.map(p => p.brand?.trim().toLowerCase()).filter(Boolean)
+  ))
+
   const tokens = normalized.split(/\s+/)
+  const isKnownBrand = knownBrands.some(brand => {
+    if (normalized.startsWith(brand)) return true
+    if (levenshteinDistance(normalized, brand) <= 2) return true
+    // Check if the query starts with something close to a brand name
+    const queryPrefix = normalized.split(' ').slice(0, brand.split(' ').length).join(' ')
+    return levenshteinDistance(queryPrefix, brand) <= 1
+  })
+
+
+  if (isKnownBrand) return null
+
   let changed = false
 
   const corrected = tokens.map((token) => {
-    if (token.length < 4 || QUERY_DICTIONARY.includes(token)) {
+    if (token.length <= 4 || QUERY_DICTIONARY.includes(token)) {
       return token
     }
 
@@ -155,6 +210,15 @@ function SafetyInfo({ product }: { product: Product }) {
   )
 }
 
+function renderWithBold(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*.*?\*\*)/g)
+  return parts.map((part, i) =>
+    part.startsWith('**') && part.endsWith('**')
+      ? <strong key={i}>{part.slice(2, -2)}</strong>
+      : part
+  )
+}
+
 function App(): JSX.Element {
   const [useLlm, setUseLlm] = useState<boolean | null>(null)
   const [searchInput, setSearchInput] = useState<string>('')
@@ -162,13 +226,8 @@ function App(): JSX.Element {
   const [hasSearched, setHasSearched] = useState<boolean>(false)
   const [isSearching, setIsSearching] = useState<boolean>(false)
   const [isRefining, setIsRefining] = useState<boolean>(false)
-  const [isRefining, setIsRefining] = useState<boolean>(false)
   const [visibleCount, setVisibleCount] = useState<number>(24)
   const [products, setProducts] = useState<Product[]>([])
-  const [summaryText, setSummaryText] = useState<string>('')
-  const [summarySources, setSummarySources] = useState<SearchSummaryResponse['sources']>([])
-  const [isSummaryLoading, setIsSummaryLoading] = useState<boolean>(false)
-  const [summaryError, setSummaryError] = useState<string>('')
   const [summaryText, setSummaryText] = useState<string>('')
   const [summarySources, setSummarySources] = useState<SearchSummaryResponse['sources']>([])
   const [isSummaryLoading, setIsSummaryLoading] = useState<boolean>(false)
@@ -177,22 +236,33 @@ function App(): JSX.Element {
   const [filters, setFilters] = useState<Filters>({ category: '', minPrice: '', maxPrice: '', minRating: '', sortBy: 'relevance' })
   const latestRequestId = useRef<number>(0)
 
-  
+
   // useEffect(() => {
   //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
   //   fetch('/api/categories').then(r => r.json()).then(setCategories)
   // }, [])
 
+
+  // useEffect(() => {
+  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
+  //   fetch('/api/categories').then(r => r.json()).then(setCategories)
+  // }, [])
+
+  // useEffect(() => {
+  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
+  //   fetch('/api/categories').then(r => r.json()).then((raw: string[]) => {
+  //     // Normalize and deduplicate API categories, then merge with canonical list
+  //     const normalized = Array.from(new Set(raw.map(normalizeCategory)))
+  //     const canonical = new Set(CANONICAL_CATEGORIES)
+  //     // Put canonical categories first, then any extras from the API not in canonical
+  //     const extras = normalized.filter(c => !canonical.has(c))
+  //     setCategories([...CANONICAL_CATEGORIES, ...extras])
+  //   })
+  // }, [])
+
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
-    fetch('/api/categories').then(r => r.json()).then((raw: string[]) => {
-      // Normalize and deduplicate API categories, then merge with canonical list
-      const normalized = Array.from(new Set(raw.map(normalizeCategory)))
-      const canonical = new Set(CANONICAL_CATEGORIES)
-      // Put canonical categories first, then any extras from the API not in canonical
-      const extras = normalized.filter(c => !canonical.has(c))
-      setCategories([...CANONICAL_CATEGORIES, ...extras])
-    })
+    setCategories(CANONICAL_CATEGORIES)
   }, [])
 
   const runSearch = async (term: string, currentFilters: Filters): Promise<void> => {
@@ -214,7 +284,7 @@ function App(): JSX.Element {
     if (currentFilters.minRating) params.set('min_rating', currentFilters.minRating)
     if (currentFilters.sortBy !== 'relevance') params.set('sort_by', currentFilters.sortBy)
 
-    const runSummary = async (): Promise<void> => {
+    const runSummary = async (irResults: Product[]): Promise<void> => {
       if (!useLlm) {
         setSummaryText('')
         setSummarySources([])
@@ -226,7 +296,28 @@ function App(): JSX.Element {
       setSummaryError('')
       setIsSummaryLoading(true)
       try {
-        const summaryResponse = await fetch(`/api/products/summary?${params.toString()}`)
+        const summaryResponse = await fetch(`/api/products/summary?${params.toString()}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            // Send only the fields the summary prompt needs; keeps the payload small.
+            body: JSON.stringify({
+              results: irResults.slice(0, 10).map(p => ({
+                id: p.id,
+                name: p.name,
+                brand: p.brand,
+                price: p.price,
+                rating: p.rating,
+                description: p.description,
+                safety_score: p.safety_score,
+                flagged_ingredients: p.flagged_ingredients ?? [],
+                good_ingredients: p.good_ingredients ?? [],
+                url: p.url ?? null,
+              })),
+            }),
+          }
+        )
+
         if (!summaryResponse.ok) {
           throw new Error(`Summary request failed with status ${summaryResponse.status}`)
         }
@@ -268,86 +359,33 @@ function App(): JSX.Element {
             const ragResponse = await fetch(`/api/products/search?${params}`)
             if (ragResponse.ok) {
               const ragData: Product[] = await ragResponse.json()
-              if (requestId === latestRequestId.current) setProducts(ragData)
+              if (requestId === latestRequestId.current) {
+                setProducts(ragData)
+                // Summary is fired after the refined results are confirmed, so
+                // it always describes the exact list the user is looking at.
+                void runSummary(ragData)
+              }
+            } else {
+              // RAG search failed — summarise the fast results instead
+              if (requestId === latestRequestId.current) {
+                void runSummary(fastData)
+              }
             }
-          } finally {
+          }
+          finally {
             if (requestId === latestRequestId.current) setIsRefining(false)
           }
         })()
-      }
-
-      void runSummary()
-
-    const runSummary = async (): Promise<void> => {
-      if (!useLlm) {
+      } else {
+        // LLM off — no summary needed
         setSummaryText('')
         setSummarySources([])
         setSummaryError('')
         setIsSummaryLoading(false)
-        return
       }
-
-      setSummaryError('')
-      setIsSummaryLoading(true)
-      try {
-        const summaryResponse = await fetch(`/api/products/summary?${params.toString()}`)
-        if (!summaryResponse.ok) {
-          throw new Error(`Summary request failed with status ${summaryResponse.status}`)
-        }
-
-        const data: SearchSummaryResponse = await summaryResponse.json()
-        if (requestId === latestRequestId.current) {
-          setSummaryText(data.summary || '')
-          setSummarySources(data.sources || [])
-        }
-      } catch {
-        if (requestId === latestRequestId.current) {
-          setSummaryText('')
-          setSummarySources([])
-          setSummaryError('AI summary unavailable for this search.')
-        }
-      } finally {
-        if (requestId === latestRequestId.current) {
-          setIsSummaryLoading(false)
-        }
-      }
-    }
-
-    try {
-      // Phase 1: instant results without LLM query expansion
-      const fastParams = new URLSearchParams(params)
-      fastParams.set('use_rag', 'false')
-      const fastResponse = await fetch(`/api/products/search?${fastParams}`)
-      if (!fastResponse.ok) throw new Error(`Search failed: ${fastResponse.status}`)
-      const fastData: Product[] = await fastResponse.json()
-      if (requestId !== latestRequestId.current) return
-      setProducts(fastData)
-      setIsSearching(false)
-
-      // Phase 2: silently refine with LLM-expanded query in background
-      if (useLlm) {
-        setIsRefining(true)
-        void (async () => {
-          try {
-            const ragResponse = await fetch(`/api/products/search?${params}`)
-            if (ragResponse.ok) {
-              const ragData: Product[] = await ragResponse.json()
-              if (requestId === latestRequestId.current) setProducts(ragData)
-            }
-          } finally {
-            if (requestId === latestRequestId.current) setIsRefining(false)
-          }
-        })()
-      }
-
-      void runSummary()
     } catch {
       if (requestId === latestRequestId.current) {
         setProducts([])
-        setSummaryText('')
-        setSummarySources([])
-        setSummaryError('')
-        setIsSummaryLoading(false)
         setSummaryText('')
         setSummarySources([])
         setSummaryError('')
@@ -370,10 +408,6 @@ function App(): JSX.Element {
       setSummarySources([])
       setSummaryError('')
       setIsSummaryLoading(false)
-      setSummaryText('')
-      setSummarySources([])
-      setSummaryError('')
-      setIsSummaryLoading(false)
       return
     }
 
@@ -390,10 +424,6 @@ function App(): JSX.Element {
       setIsSearching(false)
       setVisibleCount(24)
       setProducts([])
-      setSummaryText('')
-      setSummarySources([])
-      setSummaryError('')
-      setIsSummaryLoading(false)
       setSummaryText('')
       setSummarySources([])
       setSummaryError('')
@@ -431,7 +461,6 @@ function App(): JSX.Element {
   const visibleProducts = products.slice(0, visibleCount)
   const canShowMore = products.length > visibleCount
   const skeletonCount = 6
-  const skeletonCount = 6
   const exampleQueries = [
     'face oil without titanium dioxide',
     'toner for dry, acne-prone skin',
@@ -444,15 +473,13 @@ function App(): JSX.Element {
     exampleQueries.slice(0, splitIndex),
     exampleQueries.slice(splitIndex),
   ].filter((row) => row.length > 0)
-  const didYouMean = getSuggestedQuery(searchTerm)
-  const didYouMean = getSuggestedQuery(searchTerm)
+  const didYouMean = getSuggestedQuery(searchTerm, products)
 
   return (
     <div className={`full-body-container ${useLlm ? 'llm-mode' : ''} ${hasSearched ? 'searching' : ''}`}>
       {/* Search bar (always shown) */}
       <div className="top-text">
-        
-        
+
         <h1>DermMatch</h1>
         <p className="landing-tagline">Find clean, safe skincare — powered by ingredients</p>
         <div className="input-box" onClick={() => document.getElementById('search-input')?.focus()}>
@@ -480,8 +507,7 @@ function App(): JSX.Element {
             Search
           </button>
         </div>
-        
-        
+
         {/* <p className="search-hint">Try a query:</p> */}
         <div className="example-query-grid">
           {exampleQueryRows.map((row, rowIndex) => (
@@ -542,16 +568,19 @@ function App(): JSX.Element {
             )}
 
             {!isSummaryLoading && summaryText && (
-              <p className="ai-summary-text">{summaryText}</p>
+              <p className="ai-summary-text">{renderWithBold(summaryText)}</p>
+
             )}
 
             {!isSummaryLoading && summaryError && (
               <p className="ai-summary-error">{summaryError}</p>
             )}
 
+            <span className="ai-summary-top-products">Top Recommended Products:</span>
+
             {!isSummaryLoading && summarySources.length > 0 && (
               <div className="ai-summary-sources" aria-label="Summary sources">
-                {summarySources.map((source) => (
+                {/* {summarySources.map((source) => (
                   source.url ? (
                     <a key={`${source.id}-${source.name}`} href={source.url} target="_blank" rel="noreferrer" className="ai-summary-source-link">
                       {source.name}
@@ -559,40 +588,20 @@ function App(): JSX.Element {
                   ) : (
                     <span key={`${source.id}-${source.name}`} className="ai-summary-source-link muted">{source.name}</span>
                   )
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
-        {searchTerm.trim() && useLlm && (isSummaryLoading || summaryText || summaryError) && (
-          <section className="ai-summary-panel" aria-live="polite" aria-busy={isSummaryLoading}>
-            <span className="ai-summary-header">AI Overview of Top Matches</span>
-
-            {isSummaryLoading && (
-              <div className="ai-summary-loading" role="status">
-                <span className="ai-summary-shimmer line-1" />
-                <span className="ai-summary-shimmer line-2" />
-              </div>
-            )}
-
-            {!isSummaryLoading && summaryText && (
-              <p className="ai-summary-text">{summaryText}</p>
-            )}
-
-            {!isSummaryLoading && summaryError && (
-              <p className="ai-summary-error">{summaryError}</p>
-            )}
-
-            {!isSummaryLoading && summarySources.length > 0 && (
-              <div className="ai-summary-sources" aria-label="Summary sources">
+                ))} */}
                 {summarySources.map((source) => (
                   source.url ? (
                     <a key={`${source.id}-${source.name}`} href={source.url} target="_blank" rel="noreferrer" className="ai-summary-source-link">
-                      {source.name}
+                      <span className="ai-summary-source-brand">{source.brand}</span>
+                      <span className="ai-summary-source-divider">·</span>
+                      <span className="ai-summary-source-name">{source.name}</span>
                     </a>
                   ) : (
-                    <span key={`${source.id}-${source.name}`} className="ai-summary-source-link muted">{source.name}</span>
+                    <span key={`${source.id}-${source.name}`} className="ai-summary-source-link muted">
+                      <span className="ai-summary-source-brand">{source.brand}</span>
+                      <span className="ai-summary-source-divider">-</span>
+                      <span className="ai-summary-source-name">{source.name}</span>
+                    </span>
                   )
                 ))}
               </div>
@@ -623,30 +632,7 @@ function App(): JSX.Element {
                   {didYouMean}
                 </button>
                 <span className="did-you-mean-copy">"?</span>
-                
-              </>
-            )}
-          </p>
-          <p className="result-count">
-            {products.length} result{products.length !== 1 ? 's' : ''} for "{searchTerm}".
-            {isRefining && <span className="refining-badge"> Refining with AI…</span>}
-            {didYouMean && (
-              <>
-                {' '}
-                <span className="did-you-mean-copy">Did you mean</span>{' '}
-                <span className="did-you-mean-copy">"</span>
-                <button
-                  type="button"
-                  className="did-you-mean-button"
-                  onClick={() => {
-                    setSearchInput(didYouMean)
-                    executeSearch(didYouMean)
-                  }}
-                >
-                  {didYouMean}
-                </button>
-                <span className="did-you-mean-copy">"?</span>
-                
+
               </>
             )}
           </p>
@@ -657,33 +643,6 @@ function App(): JSX.Element {
             <p className="empty-hint">Try a different search term or adjust your filters.</p>
           </div>
         )}
-        {searchTerm.trim() && isSearching && Array.from({ length: skeletonCount }).map((_, index) => (
-          <div key={`skeleton-${index}`} className="product-item skeleton-card" aria-hidden="true">
-            <div className="card-header">
-              <div className="skeleton-line skeleton-line-brand" />
-              <div className="skeleton-line skeleton-line-title" />
-            </div>
-
-            <div className="pill-row">
-              <span className="skeleton-pill" />
-              <span className="skeleton-pill" />
-            </div>
-
-            <div className="meta-row">
-              <div className="skeleton-line skeleton-line-stars" />
-              <div className="skeleton-line skeleton-line-reviews" />
-              <div className="skeleton-line skeleton-line-price" />
-            </div>
-
-            <div className="skeleton-line skeleton-line-body" />
-            <div className="skeleton-line skeleton-line-body short" />
-
-            <div className="match-score-wrapper">
-              <div className="skeleton-line skeleton-line-score" />
-            </div>
-          </div>
-        ))}
-        {!isSearching && visibleProducts.map((product, index) => (
         {searchTerm.trim() && isSearching && Array.from({ length: skeletonCount }).map((_, index) => (
           <div key={`skeleton-${index}`} className="product-item skeleton-card" aria-hidden="true">
             <div className="card-header">
@@ -768,8 +727,6 @@ function App(): JSX.Element {
                 )}
               </span>
             </div>
-
-            
             {product.description && (
               <details className="description-dropdown">
                 <summary>Description</summary>
@@ -777,19 +734,19 @@ function App(): JSX.Element {
 
                 {/* SVD debug info */}
                 {product.top_dimensions && (
-                <div className="svd-debug">
-                  <p className="svd-title">SVD Score: {product.svd_score?.toFixed(4)}</p>
-                  
-                  <p className="svd-section-label">▲ Top 5 Dimensions</p>
-                  {product.top_dimensions.top.map((d, i) => (
-                    <div key={i} className="svd-dim-row">
-                      <span className="svd-dim-label">Dim {d.dim}</span>
-                      <span className="svd-dim-contrib">+{d.contribution.toFixed(4)}</span>
-                      <span className="svd-dim-terms">{d.top_terms.join(', ')}</span>
-                    </div>
-                  ))}
+                  <div className="svd-debug">
+                    <p className="svd-title">SVD Score: {product.svd_score?.toFixed(4)}</p>
 
-                  {/* <p className="svd-section-label">▼ Bottom 5 Dimensions</p>
+                    <p className="svd-section-label">▲ Top 5 Dimensions</p>
+                    {product.top_dimensions.top.map((d, i) => (
+                      <div key={i} className="svd-dim-row">
+                        <span className="svd-dim-label">Dim {d.dim}</span>
+                        <span className="svd-dim-contrib">+{d.contribution.toFixed(4)}</span>
+                        <span className="svd-dim-terms">{d.top_terms.join(', ')}</span>
+                      </div>
+                    ))}
+
+                    {/* <p className="svd-section-label">▼ Bottom 5 Dimensions</p>
                   {product.top_dimensions.bottom.map((d, i) => (
                     <div key={i} className="svd-dim-row">
                       <span className="svd-neg">Dim {d.dim}</span>
@@ -797,8 +754,8 @@ function App(): JSX.Element {
                       <span className="svd-dim-terms">{d.top_terms.join(', ')}</span>
                     </div>
                   ))} */}
-                </div>
-              )}
+                  </div>
+                )}
               </details>
             )}
 
@@ -827,7 +784,6 @@ function App(): JSX.Element {
       </div>
 
       {/* Chat (only when USE_LLM = True in routes.py) */}
-      {useLlm && <Chat onSearchTerm={handleChatSearch} minimized />}
       {useLlm && <Chat onSearchTerm={handleChatSearch} minimized />}
     </div>
   )
