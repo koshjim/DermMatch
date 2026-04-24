@@ -4,6 +4,7 @@ Adds a POST /api/chat endpoint that performs LLM-driven RAG.
 
 Setup:
   1. Add SPARK_API_KEY=your_key to .env
+  1. Add SPARK_API_KEY=your_key to .env
   2. Set USE_LLM = True in routes.py
 """
 import json

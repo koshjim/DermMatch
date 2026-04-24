@@ -226,13 +226,8 @@ function App(): JSX.Element {
   const [hasSearched, setHasSearched] = useState<boolean>(false)
   const [isSearching, setIsSearching] = useState<boolean>(false)
   const [isRefining, setIsRefining] = useState<boolean>(false)
-  const [isRefining, setIsRefining] = useState<boolean>(false)
   const [visibleCount, setVisibleCount] = useState<number>(24)
   const [products, setProducts] = useState<Product[]>([])
-  const [summaryText, setSummaryText] = useState<string>('')
-  const [summarySources, setSummarySources] = useState<SearchSummaryResponse['sources']>([])
-  const [isSummaryLoading, setIsSummaryLoading] = useState<boolean>(false)
-  const [summaryError, setSummaryError] = useState<string>('')
   const [summaryText, setSummaryText] = useState<string>('')
   const [summarySources, setSummarySources] = useState<SearchSummaryResponse['sources']>([])
   const [isSummaryLoading, setIsSummaryLoading] = useState<boolean>(false)
@@ -395,10 +390,6 @@ function App(): JSX.Element {
         setSummarySources([])
         setSummaryError('')
         setIsSummaryLoading(false)
-        setSummaryText('')
-        setSummarySources([])
-        setSummaryError('')
-        setIsSummaryLoading(false)
         setIsSearching(false)
       }
     }
@@ -413,10 +404,6 @@ function App(): JSX.Element {
       setSearchTerm('')
       setIsSearching(false)
       setProducts([])
-      setSummaryText('')
-      setSummarySources([])
-      setSummaryError('')
-      setIsSummaryLoading(false)
       setSummaryText('')
       setSummarySources([])
       setSummaryError('')
@@ -437,10 +424,6 @@ function App(): JSX.Element {
       setIsSearching(false)
       setVisibleCount(24)
       setProducts([])
-      setSummaryText('')
-      setSummarySources([])
-      setSummaryError('')
-      setIsSummaryLoading(false)
       setSummaryText('')
       setSummarySources([])
       setSummaryError('')
@@ -477,7 +460,6 @@ function App(): JSX.Element {
 
   const visibleProducts = products.slice(0, visibleCount)
   const canShowMore = products.length > visibleCount
-  const skeletonCount = 6
   const skeletonCount = 6
   const exampleQueries = [
     'face oil without titanium dioxide',
@@ -631,7 +613,29 @@ function App(): JSX.Element {
           <p className="search-status">Searching...</p>
         )}
         {searchTerm.trim() && !isSearching && products.length > 0 && (
-          <p className="result-count">{products.length} result{products.length !== 1 ? 's' : ''} for "{searchTerm}"</p>
+          <p className="result-count">
+            {products.length} result{products.length !== 1 ? 's' : ''} for "{searchTerm}".
+            {isRefining && <span className="refining-badge"> Refining with AI…</span>}
+            {didYouMean && (
+              <>
+                {' '}
+                <span className="did-you-mean-copy">Did you mean</span>{' '}
+                <span className="did-you-mean-copy">"</span>
+                <button
+                  type="button"
+                  className="did-you-mean-button"
+                  onClick={() => {
+                    setSearchInput(didYouMean)
+                    executeSearch(didYouMean)
+                  }}
+                >
+                  {didYouMean}
+                </button>
+                <span className="did-you-mean-copy">"?</span>
+
+              </>
+            )}
+          </p>
         )}
         {searchTerm.trim() && !isSearching && products.length === 0 && (
           <div className="empty-state">

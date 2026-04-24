@@ -181,5 +181,4 @@ function Chat({ onSearchTerm, minimized = false }: ChatProps): JSX.Element {
     </div>
   )
 }
-
 export default Chat
