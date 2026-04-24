@@ -1046,12 +1046,13 @@ def register_routes(app):
                     "content": (
                        "You are a skincare expert. Given a user's search query and the top matching products "
                         "returned by the search system, write a 3-5 sentence overview summarising what kinds of "
-                        "products were found and the pros of each product based on information about the user's skin type."
-                        "If no further information is given about the user's preferences, suggest 3 top products that differ in their ingredients."
+                        "products were found and the pros of each product based on information about the user's skin"
+                        "type and skin concerns if they mention it. If the user specifies a specific brand, rank products of that brand higher"
+                        "If no further information is given about the user's preferences, suggest the 3 best products that you recommended for them."
                         # "Do not re-rank, add, or remove products — the search system's ranking is final. "
                         # "Do not list products by name individually."
                         "When mentioning specific product names, wrap them in **double asterisks** for bold formatting."
-                        "Be concise and helpful by referencing specific products and their ingredients. "
+                        "Be concise and helpful by referencing specific products, brands, and their ingredients. "
                         "Do not include"
                     ),
                 },

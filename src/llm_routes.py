@@ -88,9 +88,9 @@ def llm_search_decision(client, user_message, history=None):
             "role": "system",
             "content": (
                 "You help route queries to a Sephora skincare product database. "
-                "Given the conversation history and the latest user message, decide if product data is needed. "
+                "Given the conversation history and the latest user's message, decide if product data is needed. "
                 "If YES, also rewrite the query as a short, standalone, IR-friendly search phrase "
-                "that captures the full intent (e.g. include product type, skin concern, constraints like price or ingredients). "
+                "that captures the full intent (e.g. include brand, product type, skin concern, constraints like price or ingredients). "
                 "Reply in exactly this format:\n"
                 "YES: <reformulated query>\n"
                 "or\n"
