@@ -419,7 +419,7 @@ body {
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
-  font-weight: 600;
+  font-weight: 700;
   color: #6B7A6B;
 }
 
@@ -441,7 +441,9 @@ body {
 }
 
 .ai-summary-text strong {
-  font-weight: 500 !important;
+  font-weight: 500;
+  color: #3d6e3d;
+  font-style: oblique;
 }
 
 .ai-summary-error {
@@ -473,7 +475,7 @@ body {
 }
 
 .ai-summary-source-brand {
-  font-weight: 600;
+  /* font-weight: 600; */
   color: #6B7A6B;
 }
 
@@ -483,7 +485,7 @@ body {
 }
 
 .ai-summary-source-name {
-  font-weight: 500;
+  font-weight: 600;
   color: #6B7A6B;
 }
 
@@ -562,7 +564,7 @@ body {
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
-  font-weight: 600;
+  font-weight: 700;
   color: #6B7A6B;
 }
 
@@ -1429,8 +1431,8 @@ body {
 
 .chat-header-title {
   margin: 0;
-  font-family: 'DM Sans', sans-serif;
-  font-size: 0.9rem;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 1.0rem;
   font-weight: 700;
   color: #2f5f3f;
 }
@@ -1486,8 +1488,8 @@ body {
 }
 
 .message.user p {
-  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  color: #3A6B4A;
+  font-family: 'Montserrat', sans-serif;
+  color: #386f4ae8;
 }
 
 /* ── Loading dots ────────────────────────────────────────────────────────── */
@@ -1575,7 +1577,7 @@ body {
   border: none;
   outline: 0;
   background: transparent;
-  font-family: 'Open Sans', sans-serif;
+  font-family: 'Montserrat', sans-serif;
   line-height: 1.35;
   color: #2D3B2D;
 }
@@ -1589,7 +1591,7 @@ body {
   background: #3A6B4A;
   color: #fff;
   cursor: pointer;
-  font-family: 'Open Sans', sans-serif;
+  font-family: 'Montserrat', sans-serif;
   font-weight: 600;
   transition: background 0.15s;
 }
