@@ -1,5 +1,6 @@
 """
 Routes: React app serving and products search API.
+Routes: React app serving and products search API.
 
 To enable AI chat, set USE_LLM = True below. See llm_routes.py for AI code.
 """
@@ -7,6 +8,7 @@ import json
 import os
 import csv
 import re
+import logging
 import logging
 from functools import lru_cache
 import pandas as pd
@@ -20,9 +22,11 @@ from sklearn.preprocessing import normalize
 
 logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
+
 # ── AI toggle ────────────────────────────────────────────────────────────────
-USE_LLM = False
-# USE_LLM = True
+# USE_LLM = False
+USE_LLM = True
 # ─────────────────────────────────────────────────────────────────────────────
 
 def clean_product_description(text):
@@ -35,6 +39,7 @@ def clean_product_description(text):
     ]
     cleaned = " ".join(kept)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    cleaned = re.sub(r'(?i)\bp\s+h\b', 'pH', cleaned)
     cleaned = re.sub(r'(?i)\bp\s+h\b', 'pH', cleaned)
 
     # Drop placeholder/noise descriptions like "wf", "n/a", "--", etc.
@@ -730,10 +735,20 @@ def ranked_product_search(query, original_query=None, category='', min_price=Non
     )
 
     tfidf_sim = cosine_similarity(rocchio_query_vec, tfidf_matrix).flatten()
+    initial_tfidf_sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
+    rocchio_query_vec = rocchio_pseudo_feedback_query(
+        query_vec=query_vec,
+        tfidf_matrix=tfidf_matrix,
+        base_scores=initial_tfidf_sim,
+        candidate_indices=candidate_indices,
+    )
+
+    tfidf_sim = cosine_similarity(rocchio_query_vec, tfidf_matrix).flatten()
 
     svd_sim = np.zeros_like(tfidf_sim)
     query_lsa = None
     if n_components >= 2 and svd is not None:
+        query_lsa = normalize(svd.transform(rocchio_query_vec))
         query_lsa = normalize(svd.transform(rocchio_query_vec))
         svd_sim   = cosine_similarity(query_lsa, doc_lsa).flatten()
 
@@ -925,6 +940,7 @@ def ranked_product_search(query, original_query=None, category='', min_price=Non
 def register_routes(app):
     @app.route('/', defaults={'path': ''})
     
+    
     @app.route('/<path:path>')
     def serve(path):
         if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
@@ -935,6 +951,8 @@ def register_routes(app):
     @app.route("/api/config")
     def config():
         return jsonify({"use_llm": USE_LLM})
+    # Queries can be transformed upstream (e.g., by RAG), then ranked here
+    # with fuzzy expansion + Rocchio pseudo-relevance feedback.
     # Queries can be transformed upstream (e.g., by RAG), then ranked here
     # with fuzzy expansion + Rocchio pseudo-relevance feedback.
     
@@ -1080,4 +1098,5 @@ def register_routes(app):
 
     if USE_LLM:
         from llm_routes import register_chat_route
+        register_chat_route(app, lambda q: ranked_product_search(q))
         register_chat_route(app, lambda q: ranked_product_search(q))
