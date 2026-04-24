@@ -161,7 +161,7 @@ function Chat({ onSearchTerm, currentSearchTerm, minimized = false }: ChatProps)
         <form className="input-row" onSubmit={sendMessage}>
           {/* <img src={SearchIcon} alt="" /> */}
           <textarea
-            placeholder="Ask about a skincare product, an ingredient, or skin concern"
+            placeholder="Ask about a skincare product, an ingredient, or a skin concern"
             value={input}
             onChange={e => setInput(e.target.value.slice(0, MAX_MESSAGE_LENGTH))}
             onKeyDown={(e) => {

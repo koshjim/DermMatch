@@ -24,6 +24,12 @@ interface SearchSummaryResponse {
   used_llm: boolean
 }
 
+interface ExpandedSearchResponse {
+  original_query: string
+  rag_query: string
+  results: Product[]
+}
+
 const QUERY_DICTIONARY = [
   'moisturizer',
   'cleanser',
@@ -238,6 +244,7 @@ function App(): JSX.Element {
   const [categories, setCategories] = useState<string[]>([])
   const [filters, setFilters] = useState<Filters>({ category: '', minPrice: '', maxPrice: '', minRating: '', sortBy: 'relevance' })
   const latestRequestId = useRef<number>(0)
+  const [expandedQuery, setExpandedQuery] = useState<string>('')
 
 
   // useEffect(() => {
@@ -359,14 +366,15 @@ function App(): JSX.Element {
         setIsRefining(true)
         void (async () => {
           try {
-            const ragResponse = await fetch(`/api/products/search?${params}`)
+            const ragResponse = await fetch(`/api/products/search?${params}&include_expanded=true`)
             if (ragResponse.ok) {
-              const ragData: Product[] = await ragResponse.json()
+              const ragData: ExpandedSearchResponse = await ragResponse.json()
               if (requestId === latestRequestId.current) {
-                setProducts(ragData)
+                setProducts(ragData.results)
+                setExpandedQuery(ragData.rag_query || '')
                 // Summary is fired after the refined results are confirmed, so
                 // it always describes the exact list the user is looking at.
-                void runSummary(ragData)
+                void runSummary(ragData.results)
               }
             } else {
               // RAG search failed — summarise the fast results instead
@@ -401,6 +409,7 @@ function App(): JSX.Element {
   const executeSearch = (term: string): void => {
     const trimmed = term.trim()
     latestRequestId.current += 1
+    setExpandedQuery('')
     setVisibleCount(24)
 
     if (!trimmed) {
@@ -469,7 +478,7 @@ function App(): JSX.Element {
     'toner for dry, acne-prone skin',
     'moisturizer for eczema',
     'cleanser with niacinamide',
-    'sunscreen safe for sensitive skin',
+    'exfoliator safe for sensitive skin',
   ]
   const splitIndex = Math.ceil(exampleQueries.length / 2)
   const exampleQueryRows = [
@@ -562,6 +571,11 @@ function App(): JSX.Element {
         {searchTerm.trim() && useLlm && (isSummaryLoading || summaryText || summaryError) && (
           <section className="ai-summary-panel" aria-live="polite" aria-busy={isSummaryLoading}>
             <span className="ai-summary-header">AI Overview of Top Matches</span>
+            {expandedQuery && (
+              <p className="ai-summary-expanded-query">
+                Expanded Query with RAG: <em>"{expandedQuery}"</em>
+              </p>
+            )}
 
             {isSummaryLoading && (
               <div className="ai-summary-loading" role="status">

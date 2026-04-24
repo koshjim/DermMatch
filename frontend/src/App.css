@@ -423,6 +423,12 @@ body {
   color: #6B7A6B;
 }
 
+.ai-summary-expanded-query {
+  font-size: 0.78rem;
+  color: #384b38;
+  margin: 0 0 8px 0;
+}
+
 .ai-summary-top-products {
   display: block;
   font-weight: 800;
