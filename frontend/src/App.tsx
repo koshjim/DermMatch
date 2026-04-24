@@ -59,6 +59,7 @@ const CATEGORY_MAP: Record<string, string> = {
   'eye cream dark circles': 'Eye Creams',
   'facial peels': 'Exfoliators',
   'exfoliating scrub exfoliator': 'Exfoliators',
+  'peels pads': 'Peel Pads',
   'facial treatment masks': 'Masks',
   'sheet masks': 'Masks',
   'face serum': 'Serums',
@@ -78,6 +79,7 @@ const CANONICAL_CATEGORIES = [
   'Toners',
   'Eye Creams',
   'Exfoliators',
+  'Peel Pads',
   'Masks',
   'Serums',
   'Sunscreens',
@@ -594,15 +596,15 @@ function App(): JSX.Element {
                 {summarySources.map((source) => (
                   source.url ? (
                     <a key={`${source.id}-${source.name}`} href={source.url} target="_blank" rel="noreferrer" className="ai-summary-source-link">
-                      <span className="ai-summary-source-brand">{source.brand}</span>
-                      <span className="ai-summary-source-divider">·</span>
                       <span className="ai-summary-source-name">{source.name}</span>
+                      <span className="ai-summary-source-divider">by</span>
+                      <span className="ai-summary-source-brand">{source.brand}</span>
                     </a>
                   ) : (
                     <span key={`${source.id}-${source.name}`} className="ai-summary-source-link muted">
+                       <span className="ai-summary-source-name">{source.name}</span>
+                      <span className="ai-summary-source-divider">·</span>
                       <span className="ai-summary-source-brand">{source.brand}</span>
-                      <span className="ai-summary-source-divider">-</span>
-                      <span className="ai-summary-source-name">{source.name}</span>
                     </span>
                   )
                 ))}
