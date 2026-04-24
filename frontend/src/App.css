@@ -473,7 +473,8 @@ body {
 }
 
 .ai-summary-source-brand {
-  font-weight: 500;
+  font-weight: 600;
+  color: #6B7A6B;
 }
 
 .ai-summary-source-divider {
@@ -482,7 +483,8 @@ body {
 }
 
 .ai-summary-source-name {
-  font-weight: 400;
+  font-weight: 500;
+  color: #6B7A6B;
 }
 
 .ai-summary-sources {
@@ -952,7 +954,7 @@ body {
   line-height: 1.2;
   padding: 5px 10px;
   border-radius: 999px;
-  text-transform: capitalize;
+  /* text-transform: capitalize; */
 }
 
 .safety-badge {

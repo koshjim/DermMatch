@@ -85,6 +85,8 @@ const CANONICAL_CATEGORIES = [
   'Mini Skincare'
 ]
 
+
+
 function levenshteinDistance(left: string, right: string): number {
   if (left === right) return 0
   if (!left.length) return right.length
@@ -171,7 +173,7 @@ function StarRating({ rating }: { rating: number }) {
 function SafetyBadge({ score }: { score: number }) {
   const level = score >= 75 ? 'high' : score >= 45 ? 'medium' : 'low'
   const label = score >= 75 ? 'Clean Score' : score >= 45 ? 'Moderate Score' : 'Caution Score'
-  return <span className={`safety-badge safety-${level}`}>⬤ {label} ({Math.round(score)})</span>
+  return <span className={`safety-badge safety-${level}`}>{label} ({Math.round(score)})  ⓘ </span>
 }
 
 function SafetyInfo({ product }: { product: Product }) {
@@ -784,7 +786,9 @@ function App(): JSX.Element {
       </div>
 
       {/* Chat (only when USE_LLM = True in routes.py) */}
-      {useLlm && <Chat onSearchTerm={handleChatSearch} minimized />}
+      {useLlm && <Chat onSearchTerm={handleChatSearch} currentSearchTerm={searchTerm} minimized />
+}
+      
     </div>
   )
 }
