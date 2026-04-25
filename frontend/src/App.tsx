@@ -631,7 +631,7 @@ function App(): JSX.Element {
         )}
         {searchTerm.trim() && !isSearching && products.length > 0 && (
           <p className="result-count">
-            {products.length} result{products.length !== 1 ? 's' : ''} for "{searchTerm}".
+            {products.length} result{products.length !== 1 ? 's' : ''} for "{expandedQuery}".
             {isRefining && <span className="refining-badge"> Refining with AI…</span>}
             {didYouMean && (
               <>
