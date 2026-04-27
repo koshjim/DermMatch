@@ -398,6 +398,15 @@ def build_search_index():
 
     corpus = [" ".join(tokenize_and_stem(_product_svd_text(p))) for p in products]
 
+    def _product_full_text(p):
+        structured = (f"{p.product_name or ''} {p.brand_name or ''} {p.primary_category or ''} "
+                      f"{p.secondary_category or ''} {p.category or ''} {p.highlights or ''}")
+        ingredients = list(dict.fromkeys((p.ingredients or '').lower().split(',')))
+        ingredients_text = ' '.join(i.strip() for i in ingredients[:100])
+        return f"{structured} {structured} {structured} {p.description or ''} {ingredients_text}"
+
+    product_tokens_list = [tokenize_and_stem(_product_full_text(p)) for p in products]
+
     vectorizer = TfidfVectorizer(
         stop_words='english',
         min_df=1,
@@ -426,14 +435,15 @@ def build_search_index():
         doc_lsa = normalize(svd.fit_transform(tfidf_matrix))
 
     _search_index = {
-        'products':     products,
-        'vectorizer':   vectorizer,
-        'tfidf_matrix': tfidf_matrix,
-        'svd':          svd,
-        'doc_lsa':      doc_lsa,
-        'terms':        terms,
-        'n_components': n_components,
-        'inverted_index': inverted_index,
+        'products':           products,
+        'vectorizer':         vectorizer,
+        'tfidf_matrix':       tfidf_matrix,
+        'svd':                svd,
+        'doc_lsa':            doc_lsa,
+        'terms':              terms,
+        'n_components':       n_components,
+        'inverted_index':     inverted_index,
+        'product_tokens_list': product_tokens_list,
     }
 
     return _search_index
@@ -608,15 +618,16 @@ def ranked_product_search(query, original_query=None, category='', min_price=Non
         return []
 
     #use pre-computed search index
-    idx          = _get_search_index()
-    products     = idx['products']
-    vectorizer   = idx['vectorizer']
-    tfidf_matrix = idx['tfidf_matrix']
-    svd          = idx['svd']
-    doc_lsa      = idx['doc_lsa']
-    terms        = idx['terms']
-    n_components = idx['n_components']
-    inverted_index = idx['inverted_index']
+    idx               = _get_search_index()
+    products          = idx['products']
+    vectorizer        = idx['vectorizer']
+    tfidf_matrix      = idx['tfidf_matrix']
+    svd               = idx['svd']
+    doc_lsa           = idx['doc_lsa']
+    terms             = idx['terms']
+    n_components      = idx['n_components']
+    inverted_index    = idx['inverted_index']
+    product_tokens_list = idx['product_tokens_list']
 
     # parse query
     normalized_query    = normalize_search_text(query)
@@ -629,8 +640,6 @@ def ranked_product_search(query, original_query=None, category='', min_price=Non
             for kw in CATEGORY_KEYWORDS.get(query_category, [])
         )
     )
-
-    query_skin_context = parse_query_skin_context(query)
     explicit_avoided  = query_skin_context['avoided_ingredients'][0]
     condition_avoided = query_skin_context['avoided_ingredients'][1]
 
@@ -758,14 +767,6 @@ def ranked_product_search(query, original_query=None, category='', min_price=Non
     chem_freq     = get_chemical_frequency()
     max_chem_freq = max((freq for _, freq in chem_freq), default=1)
 
-    # text parsing for ingredient matching and category detection
-    def product_full_text(p):
-        structured = (f"{p.product_name or ''} {p.brand_name or ''} {p.primary_category or ''} "
-                      f"{p.secondary_category or ''} {p.category or ''} {p.highlights or ''}")
-        ingredients = list(dict.fromkeys((p.ingredients or '').lower().split(',')))
-        ingredients_text = ' '.join(i.strip() for i in ingredients[:100])
-        return f"{structured} {structured} {structured} {p.description or ''} {ingredients_text}"
-
     # product scoring
     results = []
 
@@ -811,7 +812,7 @@ def ranked_product_search(query, original_query=None, category='', min_price=Non
             if base_score < MIN_BASE_SIMILARITY:
                 continue
 
-            product_tokens = tokenize_and_stem(product_full_text(p))
+            product_tokens = product_tokens_list[i]
             token_coverage = (
                 sum(1 for t in raw_query_tokens if any(words_match(t, c) for c in product_tokens))
                 / len(raw_query_tokens)

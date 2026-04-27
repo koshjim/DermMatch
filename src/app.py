@@ -163,5 +163,11 @@ def init_db():
 
 init_db()
 
+with app.app_context():
+    from routes import build_search_index
+    print("Building search index...")
+    build_search_index()
+    print("Search index ready.")
+
 if __name__ == '__main__':
     app.run(debug=True, host="0.0.0.0", port=5001)
