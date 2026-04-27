@@ -794,8 +794,9 @@ def ranked_product_search(query, original_query=None, category='', min_price=Non
         condition_hits = _ingredients_present(p.ingredients, condition_avoided)
         avoided_hits   = explicit_hits | condition_hits  # used for scoring/display below
 
-        if query_skin_context['avoided_ingredients'] and avoided_hits:
-            continue # hard exclude — even if user didn't explicitly say "without" but best for their skin condition"
+        # if query_skin_context['avoided_ingredients'] and avoided_hits:
+        #     continue # hard exclude — even if user didn't explicitly say "without" but best for their skin condition"
+        
 
         if pure_category_query:
             if not category_match:
