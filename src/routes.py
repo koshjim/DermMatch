@@ -833,10 +833,10 @@ def ranked_product_search(query, original_query=None, category='', min_price=Non
             if normalized_query in normalize_search_text(f"{p.product_name or ''} {p.brand_name or ''}"):
                 base_score += 0.05
 
-        avoided_hits = _ingredients_present(p.ingredients, query_skin_context['avoided_ingredients'])
-        if query_skin_context['avoided_ingredients'] and avoided_hits:
-            # Hard exclude products containing ingredients the query asks to avoid.
-            continue
+        # avoided_hits = _ingredients_present(p.ingredients, query_skin_context['avoided_ingredients'])
+        # if query_skin_context['avoided_ingredients'] and avoided_hits:
+        #     # Hard exclude products containing ingredients the query asks to avoid.
+        #     continue
         
         ingredients_lower = (p.ingredients or '').lower()
 
