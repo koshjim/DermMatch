@@ -6,7 +6,7 @@
  * to update the search bar and results above.
  */
 import { useState, useRef, useEffect } from 'react'
-import ReactMarkdown from 'react-markdown'
+// import ReactMarkdown from 'react-markdown'
 interface Message {
   text: string
   isUser: boolean
@@ -145,7 +145,7 @@ function Chat({ onSearchTerm, currentSearchTerm, minimized = false }: ChatProps)
       <div id="messages" style={{display: 'flex', flexDirection: 'column'}}>
         {messages.map((msg, i) => (
           <div key={i} className={`message ${msg.isUser ? 'user' : 'assistant'}`}>
-            {msg.isUser ? <p>{msg.text}</p> : <ReactMarkdown>{msg.text}</ReactMarkdown>}
+            {msg.isUser ? <p>{msg.text}</p> : <p>{msg.text}</p>}
           </div>
         ))}
         {loading && (
