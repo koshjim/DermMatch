@@ -273,7 +273,9 @@ function App(): JSX.Element {
   const [filters, setFilters] = useState<Filters>({ category: '', minPrice: '', maxPrice: '', minRating: '', sortBy: 'relevance' })
   const latestRequestId = useRef<number>(0)
   const [expandedQuery, setExpandedQuery] = useState<string>('')
-  const [ingredientMode, setIngredientMode] = useState<'include' | 'exclude'>('include');
+  // const [ingredientMode, setIngredientMode] = useState<'include' | 'exclude'>('include');
+  const [ingredientInputInclude, setIngredientInputInclude] = useState('');
+  const [ingredientInputExclude, setIngredientInputExclude] = useState('');
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
@@ -281,7 +283,14 @@ function App(): JSX.Element {
   }, [])
 
   const runSearch = async (term: string, currentFilters: Filters): Promise<void> => {
-    const trimmed = term.trim()
+    let query = term.trim();
+    if (ingredientInputInclude.trim()) {
+      query += ' include:' + ingredientInputInclude.trim();
+    }
+    if (ingredientInputExclude.trim()) {
+      query += ' exclude:' + ingredientInputExclude.trim();
+    }
+    const trimmed = query.trim();
     if (trimmed === '') {
       setProducts([])
       setIsSearching(false)
@@ -469,7 +478,12 @@ function App(): JSX.Element {
     'cleanser without niacinamide',
     'i have acne. find me a serum that targets it',
   ]
-
+  // Compose a display query with included/excluded ingredients (for display in result count and expanded query)
+  const displayIngredientQuery = [
+    ingredientInputInclude && `including ${ingredientInputInclude}`,
+    ingredientInputExclude && `excluding ${ingredientInputExclude}`
+  ].filter(Boolean).join(' ');
+  const displayQuery = [searchTerm, displayIngredientQuery].filter(Boolean).join(' ').trim();
   const splitIndex = Math.ceil(exampleQueries.length / 2)
   const exampleQueryRows = [
     exampleQueries.slice(0, splitIndex),
@@ -534,7 +548,7 @@ function App(): JSX.Element {
         )}
 
         {/* RAG toggle and ingredient filter controls */}
-        <div className="rag-ingredient-row fade-up-anim" style={{ marginTop: '1rem', marginBottom: '0.5rem', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', width: '100%', gap: '1.5rem' }}>
+        <div className="rag-ingredient-row fade-up-anim">
           <button
             type="button"
             className={`rag-toggle-btn${useRag ? ' active' : ''}`}
@@ -543,50 +557,35 @@ function App(): JSX.Element {
             RAG {useRag ? '(On)' : '(Off)'}
           </button>
           <div className="ingredient-filter-group">
-            <p>Optional:</p>
+            <label style={{ color: '#2E6B42' }}>Include Ingredients:</label>
             <input
               type="text"
               className="ingredient-input"
-              placeholder="Input an ingredient to include or exclude (e.g. 'niacinamide')"
-              value={ingredientInput}
-              onChange={e => setIngredientInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  const val = ingredientInput.trim().toLowerCase();
-                  if (!val) return;
-                  if (ingredientMode === 'include' && !includeIngredients.includes(val)) {
-                    setIncludeIngredients([...includeIngredients, val]);
-                  } else if (ingredientMode === 'exclude' && !excludeIngredients.includes(val)) {
-                    setExcludeIngredients([...excludeIngredients, val]);
-                  }
-                  setIngredientInput('');
-                }
-              }}
+              placeholder="Add an ingredient to include"
+              value={ingredientInputInclude}
+              onChange={e => setIngredientInputInclude(e.target.value)}
             />
-            <button
-              type="button"
-              className={`rag-toggle-btn ${ingredientMode === 'include' ? 'active' : ''}`}
-              onClick={() => setIngredientMode('include')}
-            >
-              Include
-            </button>
-            <button
-              type="button"
-              className={`rag-toggle-btn ${ingredientMode === 'exclude' ? 'active' : ''}`}
-              onClick={() => setIngredientMode('exclude')}
-            >
-              Exclude
-            </button>
+            <label style={{ color: '#B23B1B' }}>Exclude Ingredients:</label>
+            <input
+              type="text"
+              className="ingredient-input"
+              placeholder="Add an ingredient to exclude"
+              value={ingredientInputExclude}
+              onChange={e => setIngredientInputExclude(e.target.value)}
+            />
           </div>
-          <div className="ingredient-tags">
-            {includeIngredients.map((ing, i) => (
-              <span key={ing + i} className="ingredient-tag include">+{ing} <button type="button" onClick={() => setIncludeIngredients(includeIngredients.filter(x => x !== ing))}>×</button></span>
-            ))}
-            {excludeIngredients.map((ing, i) => (
-              <span key={ing + i} className="ingredient-tag exclude">-{ing} <button type="button" onClick={() => setExcludeIngredients(excludeIngredients.filter(x => x !== ing))}>×</button></span>
-            ))}
-          </div>
+          {/* <div className="ingredient-tags">
+            {ingredientInputInclude && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.2rem' }}>
+                <span className="ingredient-tag include">{ingredientInputInclude}</span>
+              </div>
+            )}
+            {ingredientInputExclude && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <span className="ingredient-tag exclude">{ingredientInputExclude}</span>
+              </div>
+            )}
+          </div> */}
         </div>
       </div>
 
@@ -625,7 +624,7 @@ function App(): JSX.Element {
                 <span className="ai-summary-header">AI Overview of Top Matches</span>
                 {expandedQuery && (
                   <p className="ai-summary-expanded-query">
-                    Expanded Query with RAG: <em>"{expandedQuery}"</em>
+                    Expanded Query with RAG: <em>"{[expandedQuery, displayIngredientQuery].filter(Boolean).join(' ').trim()}"</em>
                   </p>
                 )}
 
@@ -682,7 +681,7 @@ function App(): JSX.Element {
         )}
         {searchTerm.trim() && !isSearching && products.length > 0 && (
           <p className="result-count">
-            {products.length} result{products.length !== 1 ? 's' : ''} for "{expandedQuery}".
+            {products.length} result{products.length !== 1 ? 's' : ''} for "{displayQuery}".
             {isRefining && <span className="refining-badge"> Refining with AI…</span>}
             {didYouMean && (
               <>
@@ -700,7 +699,6 @@ function App(): JSX.Element {
                   {didYouMean}
                 </button>
                 <span className="did-you-mean-copy">"?</span>
-
               </>
             )}
           </p>
@@ -765,7 +763,7 @@ function App(): JSX.Element {
           <div
             key={index}
             className={`product-item${product.out_of_stock ? ' out-of-stock' : ''}`}
-            style={{ cursor: 'pointer' }}
+            // style={{ cursor: 'pointer' }}
             onClick={() => {
               // Find 3 most similar products by SVD dimensions (cosine similarity)
               if (product.top_dimensions && products.length > 1) {
