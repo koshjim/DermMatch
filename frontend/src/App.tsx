@@ -698,9 +698,9 @@ function App(): JSX.Element {
                   {didYouMean}
                 </button>
                 <span className="did-you-mean-copy">"?</span>
-              </>
+              </p>
             )}
-          </>
+          </p>
         )}
         {searchTerm.trim() && !isSearching && products.length === 0 && (
           <div className="empty-state">
