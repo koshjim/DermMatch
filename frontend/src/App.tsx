@@ -557,7 +557,7 @@ function App(): JSX.Element {
             RAG {useRag ? '(On)' : '(Off)'}
           </button>
           <div className="ingredient-filter-group">
-            <label style={{ color: '#2E6B42' }}>Include Ingredients:</label>
+            <label style={{ color: '#3A6B4A' }}>Include Ingredients:</label>
             <input
               type="text"
               className="ingredient-input"
@@ -565,7 +565,7 @@ function App(): JSX.Element {
               value={ingredientInputInclude}
               onChange={e => setIngredientInputInclude(e.target.value)}
             />
-            <label style={{ color: '#B23B1B' }}>Exclude Ingredients:</label>
+            <label style={{ color: '#3A6B4A' }}>Exclude Ingredients:</label>
             <input
               type="text"
               className="ingredient-input"
