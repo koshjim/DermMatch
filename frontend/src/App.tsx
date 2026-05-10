@@ -1,11 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import React from 'react';
-interface SimilarProduct {
-  id: number;
-  name: string;
-  brand: string;
-  score: number;
-}
 import './App.css'
 import SearchIcon from './assets/mag.png'
 import { Product } from './types'
@@ -190,6 +184,29 @@ function SafetyBadge({ score }: { score: number }) {
   return <span className={`safety-badge safety-${level}`}>{label} ({Math.round(score)})  ⓘ </span>
 }
 
+function getSimilarProducts(
+  product: Product,
+  allProducts: Product[]
+): { id: number; name: string; brand: string; score: number }[] {
+  if (!product.top_dimensions || allProducts.length <= 1) return [];
+  const dims = product.top_dimensions.top.map(d => d.contribution);
+  const sims = allProducts
+    .filter(p => p.id !== product.id && p.top_dimensions)
+    .map(p => {
+      const otherDims = p.top_dimensions!.top.map(d => d.contribution);
+      const len = Math.min(dims.length, otherDims.length);
+      const a = dims.slice(0, len);
+      const b = otherDims.slice(0, len);
+      const dot = a.reduce((sum, v, i) => sum + v * b[i], 0);
+      const normA = Math.sqrt(a.reduce((sum, v) => sum + v * v, 0));
+      const normB = Math.sqrt(b.reduce((sum, v) => sum + v * v, 0));
+      const sim = normA && normB ? dot / (normA * normB) : 0;
+      return { id: p.id, name: p.name, brand: p.brand, score: sim };
+    });
+  sims.sort((a, b) => b.score - a.score);
+  return sims.slice(0, 3);
+}
+
 function SafetyInfo({ product }: { product: Product }) {
   const score = Math.round(product.safety_score)
   const flaggedIngredients = product.flagged_ingredients ?? []
@@ -208,19 +225,19 @@ function SafetyInfo({ product }: { product: Product }) {
         <SafetyBadge score={product.safety_score} />
       </summary>
       <div className="safety-info-panel">
-        <p className="safety-info-title">How Clean Score Works:</p>
-        <p>Each product's clean score starts at 100, then there are penalties for flagged chemicals found in its ingredient list (according to the California Proposition 65 guidelines)</p>
-        <p>Keep in mind that the quantity of each flagged ingredient isn't considered in the score calculation.</p>
         {/* <p>Each ingredient you asked to avoid in your query subtracts an extra 10 points when present.</p> */}
         <p className="safety-info-reason">{scoreReason}</p>
-        <p className="safety-info-stats">Flagged chemicals found: {flaggedIngredients.length}</p>
-        <p className="safety-info-stats">Avoided ingredients matched: {avoidedIngredients.length}</p>
+        <p >Flagged chemicals found: {flaggedIngredients.length}</p>
         {flaggedIngredients.length > 0 && (
           <p className="safety-info-list">Flagged: {flaggedIngredients.slice(0, 5).join(', ')}{flaggedIngredients.length > 5 ? ', ...' : ''}</p>
         )}
+        <p >Avoided ingredients matched: {avoidedIngredients.length}</p>
         {avoidedIngredients.length > 0 && (
           <p className="safety-info-list">Avoided matches: {avoidedIngredients.slice(0, 5).join(', ')}{avoidedIngredients.length > 5 ? ', ...' : ''}</p>
         )}
+        <p className="safety-info-title">How Clean Score Works:</p>
+        <p>Each product's clean score starts at 100, then there are penalties for flagged chemicals found in its ingredient list (according to the California Proposition 65 guidelines)</p>
+        <p>Keep in mind that the quantity of each flagged ingredient isn't considered in the score calculation.</p>
       </div>
     </details>
   )
@@ -236,8 +253,6 @@ function renderWithBold(text: string): React.ReactNode {
 }
 
 function App(): JSX.Element {
-    const [modalProduct, setModalProduct] = useState<Product | null>(null);
-    const [similarProducts, setSimilarProducts] = useState<SimilarProduct[]>([]);
   const [useLlm, setUseLlm] = useState<boolean | null>(null)
   const [useRag, setUseRag] = useState<boolean>(true)
   const [ingredientInput, setIngredientInput] = useState('')
@@ -258,30 +273,7 @@ function App(): JSX.Element {
   const [filters, setFilters] = useState<Filters>({ category: '', minPrice: '', maxPrice: '', minRating: '', sortBy: 'relevance' })
   const latestRequestId = useRef<number>(0)
   const [expandedQuery, setExpandedQuery] = useState<string>('')
-
-
-  // useEffect(() => {
-  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
-  //   fetch('/api/categories').then(r => r.json()).then(setCategories)
-  // }, [])
-
-
-  // useEffect(() => {
-  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
-  //   fetch('/api/categories').then(r => r.json()).then(setCategories)
-  // }, [])
-
-  // useEffect(() => {
-  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
-  //   fetch('/api/categories').then(r => r.json()).then((raw: string[]) => {
-  //     // Normalize and deduplicate API categories, then merge with canonical list
-  //     const normalized = Array.from(new Set(raw.map(normalizeCategory)))
-  //     const canonical = new Set(CANONICAL_CATEGORIES)
-  //     // Put canonical categories first, then any extras from the API not in canonical
-  //     const extras = normalized.filter(c => !canonical.has(c))
-  //     setCategories([...CANONICAL_CATEGORIES, ...extras])
-  //   })
-  // }, [])
+  const [ingredientMode, setIngredientMode] = useState<'include' | 'exclude'>('include');
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
@@ -489,7 +481,7 @@ function App(): JSX.Element {
     <div className={`full-body-container ${useLlm ? 'llm-mode' : ''} ${hasSearched ? 'searching' : ''}`}>
       {/* Search bar (always shown) */}
       <div className="top-text">
-       <h1>DermMatch</h1>
+        <h1>DermMatch</h1>
         <p className="landing-tagline">Find clean, safe skincare — powered by ingredients</p>
         <div className="input-box" onClick={() => document.getElementById('search-input')?.focus()}>
           <img src={SearchIcon} alt="search" />
@@ -551,35 +543,41 @@ function App(): JSX.Element {
             RAG {useRag ? '(On)' : '(Off)'}
           </button>
           <div className="ingredient-filter-group">
+            <p>Optional:</p>
             <input
               type="text"
               className="ingredient-input"
-              placeholder="Ingredient (e.g. fragrance)"
+              placeholder="Input an ingredient to include or exclude (e.g. 'niacinamide')"
               value={ingredientInput}
               onChange={e => setIngredientInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); } }}
-              style={{ minWidth: 140 }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const val = ingredientInput.trim().toLowerCase();
+                  if (!val) return;
+                  if (ingredientMode === 'include' && !includeIngredients.includes(val)) {
+                    setIncludeIngredients([...includeIngredients, val]);
+                  } else if (ingredientMode === 'exclude' && !excludeIngredients.includes(val)) {
+                    setExcludeIngredients([...excludeIngredients, val]);
+                  }
+                  setIngredientInput('');
+                }
+              }}
             />
             <button
               type="button"
-              className="include-btn"
-              onClick={() => {
-                if (ingredientInput.trim() && !includeIngredients.includes(ingredientInput.trim().toLowerCase())) {
-                  setIncludeIngredients([...includeIngredients, ingredientInput.trim().toLowerCase()]);
-                  setIngredientInput('');
-                }
-              }}
-            >Include</button>
+              className={`rag-toggle-btn ${ingredientMode === 'include' ? 'active' : ''}`}
+              onClick={() => setIngredientMode('include')}
+            >
+              Include
+            </button>
             <button
               type="button"
-              className="exclude-btn"
-              onClick={() => {
-                if (ingredientInput.trim() && !excludeIngredients.includes(ingredientInput.trim().toLowerCase())) {
-                  setExcludeIngredients([...excludeIngredients, ingredientInput.trim().toLowerCase()]);
-                  setIngredientInput('');
-                }
-              }}
-            >Exclude</button>
+              className={`rag-toggle-btn ${ingredientMode === 'exclude' ? 'active' : ''}`}
+              onClick={() => setIngredientMode('exclude')}
+            >
+              Exclude
+            </button>
           </div>
           <div className="ingredient-tags">
             {includeIngredients.map((ing, i) => (
@@ -594,6 +592,7 @@ function App(): JSX.Element {
 
       {/* Filters & sort */}
       <div className="filter-bar">
+        <p>Filter By:</p>
         <select value={filters.category} onChange={e => handleFilterChange('category', e.target.value)}>
           <option value="">All Categories</option>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
@@ -602,10 +601,10 @@ function App(): JSX.Element {
         <input type="number" placeholder="Max $" min={0} value={filters.maxPrice} onChange={e => handleFilterChange('maxPrice', e.target.value)} />
         <select value={filters.minRating} onChange={e => handleFilterChange('minRating', e.target.value)}>
           <option value="">Any Rating</option>
-          <option value="3">3+ stars</option>
-          <option value="3.5">3.5+ stars</option>
-          <option value="4">4+ stars</option>
           <option value="4.5">4.5+ stars</option>
+          <option value="4">4+ stars</option>
+          <option value="3.5">3.5+ stars</option>
+          <option value="3">3+ stars</option>
         </select>
         <select value={filters.sortBy} onChange={e => handleFilterChange('sortBy', e.target.value)}>
           <option value="relevance">Sort: Relevance</option>
@@ -768,7 +767,6 @@ function App(): JSX.Element {
             className={`product-item${product.out_of_stock ? ' out-of-stock' : ''}`}
             style={{ cursor: 'pointer' }}
             onClick={() => {
-              setModalProduct(product);
               // Find 3 most similar products by SVD dimensions (cosine similarity)
               if (product.top_dimensions && products.length > 1) {
                 // Use top SVD dimensions as a vector
@@ -790,31 +788,10 @@ function App(): JSX.Element {
                     return { id: p.id, name: p.name, brand: p.brand, score: sim };
                   });
                 sims.sort((a, b) => b.score - a.score);
-                setSimilarProducts(sims.slice(0, 3));
               } else {
-                setSimilarProducts([]);
               }
             }}
           >
-        {/* Modal for similar products */}
-        {modalProduct && (
-          <div className="modal-overlay" onClick={() => setModalProduct(null)}>
-            <div className="modal-content" onClick={e => e.stopPropagation()}>
-              <button className="modal-close" onClick={() => setModalProduct(null)}>&times;</button>
-              <h2>Similar to: {modalProduct.name}</h2>
-              <p><strong>Brand:</strong> {modalProduct.brand}</p>
-              <p><strong>Category:</strong> {normalizeCategory(modalProduct.category)}</p>
-              <p><strong>Score:</strong> {modalProduct.score.toFixed(1)}%</p>
-              <h3>Highly Similar Products</h3>
-              {similarProducts.length === 0 && <p>No similar products found.</p>}
-              <ul>
-                {similarProducts.map(sp => (
-                  <li key={sp.id}><strong>{sp.name}</strong> by {sp.brand} (Similarity: {(sp.score * 100).toFixed(1)}%)</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
 
             {/* Top row: product name/brand + safety score */}
             <div className="card-header">
@@ -871,6 +848,7 @@ function App(): JSX.Element {
                 )}
               </span>
             </div>
+
             {product.description && (
               <details className="description-dropdown">
                 <summary>Description</summary>
@@ -903,12 +881,31 @@ function App(): JSX.Element {
               </details>
             )}
 
-            {/* {product.description && (
+            {product.top_dimensions && (
               <details className="description-dropdown">
-                <summary>Description</summary>
-                <p className="product-description">{product.description}</p>
+                <summary>Similar Products</summary>
+                {(() => {
+                  const similar = getSimilarProducts(product, products);
+                  return similar.length === 0 ? (
+                    <p className="product-description" style={{ marginTop: '0.4rem', color: '#9EAF9E' }}>
+                      No similar products found.
+                    </p>
+                  ) : (
+                    <ul style={{ margin: '0.4rem 0 0 0', padding: '0 0 0 1.1em' }}>
+                      {similar.map(sp => (
+                        <li key={sp.id} style={{ marginBottom: '0.3em', fontSize: '0.88rem', color: '#4A5A4A' }}>
+                          <span style={{ fontWeight: 600, color: '#3A6B4A' }}>{sp.name}</span>
+                          {' '}by {sp.brand}
+                          <span style={{ color: '#9EAF9E', marginLeft: '6px' }}>
+                            {(sp.score * 100).toFixed(1)}% match
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
               </details>
-            )} */}
+            )}
 
             <div className="match-score-wrapper">
               <p className="match-score-label">Match Score: {product.score.toFixed(1)}%</p>
@@ -916,13 +913,14 @@ function App(): JSX.Element {
           </div>
         ))}
 
+        {/* Show more button */}
         {searchTerm.trim() && !isSearching && canShowMore && (
           <button
             type="button"
             className="show-more-button"
             onClick={() => setVisibleCount((current) => current + 60)}
           >
-            Show {products.length - visibleCount} more products
+            Show {Math.min(60, products.length - visibleCount)} more products
           </button>
         )}
       </div>
