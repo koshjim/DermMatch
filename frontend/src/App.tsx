@@ -684,8 +684,7 @@ function App(): JSX.Element {
             {products.length} result{products.length !== 1 ? 's' : ''} for "{displayQuery}".
             {isRefining && <span className="refining-badge"> Refining with AI…</span>}
             {didYouMean && (
-              <>
-                {' '}
+              <p className="did-you-mean-line">
                 <span className="did-you-mean-copy">Did you mean</span>{' '}
                 <span className="did-you-mean-copy">"</span>
                 <button
@@ -701,7 +700,7 @@ function App(): JSX.Element {
                 <span className="did-you-mean-copy">"?</span>
               </>
             )}
-          </p>
+          </>
         )}
         {searchTerm.trim() && !isSearching && products.length === 0 && (
           <div className="empty-state">
