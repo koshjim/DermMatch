@@ -17,7 +17,7 @@ interface ChatProps {
   minimized?: boolean
 }
 
-const MAX_MESSAGE_LENGTH = 150
+const MAX_MESSAGE_LENGTH = 250
 
 function Chat({ onSearchTerm, currentSearchTerm, minimized = false }: ChatProps): JSX.Element {
   const [messages, setMessages] = useState<Message[]>([])
@@ -141,7 +141,7 @@ function Chat({ onSearchTerm, currentSearchTerm, minimized = false }: ChatProps)
         </button>
       </div>
 
-      <div id="messages">
+      <div id="messages" style={{display: 'flex', flexDirection: 'column'}}>
         {messages.map((msg, i) => (
           <div key={i} className={`message ${msg.isUser ? 'user' : 'assistant'}`}>
             <p>{msg.text}</p>
@@ -161,7 +161,7 @@ function Chat({ onSearchTerm, currentSearchTerm, minimized = false }: ChatProps)
         <form className="input-row" onSubmit={sendMessage}>
           {/* <img src={SearchIcon} alt="" /> */}
           <textarea
-            placeholder="Ask about a skincare product, an ingredient, or a skin concern"
+            placeholder="Ask about a skincare product, ingredient list, or a specific skin concern"
             value={input}
             onChange={e => setInput(e.target.value.slice(0, MAX_MESSAGE_LENGTH))}
             onKeyDown={(e) => {

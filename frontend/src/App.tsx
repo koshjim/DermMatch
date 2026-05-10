@@ -1,4 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
+import React from 'react';
+interface SimilarProduct {
+  id: number;
+  name: string;
+  brand: string;
+  score: number;
+}
 import './App.css'
 import SearchIcon from './assets/mag.png'
 import { Product } from './types'
@@ -229,7 +236,13 @@ function renderWithBold(text: string): React.ReactNode {
 }
 
 function App(): JSX.Element {
+    const [modalProduct, setModalProduct] = useState<Product | null>(null);
+    const [similarProducts, setSimilarProducts] = useState<SimilarProduct[]>([]);
   const [useLlm, setUseLlm] = useState<boolean | null>(null)
+  const [useRag, setUseRag] = useState<boolean>(true)
+  const [ingredientInput, setIngredientInput] = useState('')
+  const [includeIngredients, setIncludeIngredients] = useState<string[]>([])
+  const [excludeIngredients, setExcludeIngredients] = useState<string[]>([])
   const [searchInput, setSearchInput] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [hasSearched, setHasSearched] = useState<boolean>(false)
@@ -293,6 +306,8 @@ function App(): JSX.Element {
     if (currentFilters.maxPrice) params.set('max_price', currentFilters.maxPrice)
     if (currentFilters.minRating) params.set('min_rating', currentFilters.minRating)
     if (currentFilters.sortBy !== 'relevance') params.set('sort_by', currentFilters.sortBy)
+    // Add RAG toggle
+    params.set('use_rag', useRag ? 'true' : 'false')
 
     const runSummary = async (irResults: Product[]): Promise<void> => {
       if (!useLlm) {
@@ -351,49 +366,23 @@ function App(): JSX.Element {
     }
 
     try {
-      // Phase 1: instant results without LLM query expansion
-      const fastParams = new URLSearchParams(params)
-      fastParams.set('use_rag', 'false')
-      const fastResponse = await fetch(`/api/products/search?${fastParams}`)
-      if (!fastResponse.ok) throw new Error(`Search failed: ${fastResponse.status}`)
-      const fastData: Product[] = await fastResponse.json()
+      // Only one phase: useRag controls whether RAG is used in backend
+      const response = await fetch(`/api/products/search?${params.toString()}&include_expanded=true`)
+      if (!response.ok) throw new Error(`Search failed: ${response.status}`)
+      const data: ExpandedSearchResponse | Product[] = await response.json()
       if (requestId !== latestRequestId.current) return
-      setProducts(fastData)
-      setIsSearching(false)
-
-      // Phase 2: silently refine with LLM-expanded query in background
-      if (useLlm) {
-        setIsRefining(true)
-        void (async () => {
-          try {
-            const ragResponse = await fetch(`/api/products/search?${params}&include_expanded=true`)
-            if (ragResponse.ok) {
-              const ragData: ExpandedSearchResponse = await ragResponse.json()
-              if (requestId === latestRequestId.current) {
-                setProducts(ragData.results)
-                setExpandedQuery(ragData.rag_query || '')
-                // Summary is fired after the refined results are confirmed, so
-                // it always describes the exact list the user is looking at.
-                void runSummary(ragData.results)
-              }
-            } else {
-              // RAG search failed — summarise the fast results instead
-              if (requestId === latestRequestId.current) {
-                void runSummary(fastData)
-              }
-            }
-          }
-          finally {
-            if (requestId === latestRequestId.current) setIsRefining(false)
-          }
-        })()
+      // If include_expanded, expect ExpandedSearchResponse, else Product[]
+      if (Array.isArray(data)) {
+        setProducts(data)
+        setExpandedQuery('')
+        void runSummary(data as Product[])
       } else {
-        // LLM off — no summary needed
-        setSummaryText('')
-        setSummarySources([])
-        setSummaryError('')
-        setIsSummaryLoading(false)
+        setProducts(data.results)
+        setExpandedQuery(data.rag_query || '')
+        void runSummary(data.results)
       }
+      setIsSearching(false)
+      setIsRefining(false)
     } catch {
       if (requestId === latestRequestId.current) {
         setProducts([])
@@ -470,16 +459,25 @@ function App(): JSX.Element {
 
   if (useLlm === null) return <></>
 
-  const visibleProducts = products.slice(0, visibleCount)
+  // Filter products by included/excluded ingredients
+  const filteredProducts = products.filter(product => {
+    const ingredients = (product.ingredients || '').toLowerCase();
+    // Exclude if any excluded ingredient is present
+    if (excludeIngredients.some(ing => ingredients.includes(ing))) return false;
+    // If includes are set, only show if all are present
+    if (includeIngredients.length > 0 && !includeIngredients.every(ing => ingredients.includes(ing))) return false;
+    return true;
+  });
+  const visibleProducts = filteredProducts.slice(0, visibleCount)
   const canShowMore = products.length > visibleCount
   const skeletonCount = 6
   const exampleQueries = [
-    'face oil without titanium dioxide',
-    'toner for dry, acne-prone skin',
     'moisturizer for eczema',
-    'cleanser with niacinamide',
-    'i have acne problems. find me a serum that targets that',
+    'toner for dry, sensitive skin',
+    'cleanser without niacinamide',
+    'i have acne. find me a serum that targets it',
   ]
+
   const splitIndex = Math.ceil(exampleQueries.length / 2)
   const exampleQueryRows = [
     exampleQueries.slice(0, splitIndex),
@@ -491,14 +489,13 @@ function App(): JSX.Element {
     <div className={`full-body-container ${useLlm ? 'llm-mode' : ''} ${hasSearched ? 'searching' : ''}`}>
       {/* Search bar (always shown) */}
       <div className="top-text">
-
-        <h1>DermMatch</h1>
+       <h1>DermMatch</h1>
         <p className="landing-tagline">Find clean, safe skincare — powered by ingredients</p>
         <div className="input-box" onClick={() => document.getElementById('search-input')?.focus()}>
           <img src={SearchIcon} alt="search" />
           <input
             id="search-input"
-            placeholder="Search for a Sephora Skincare product"
+            placeholder="Search for a skincare product (e.g. 'moisturizer for dry skin')"
             value={searchInput}
             onChange={(e) => handleSearchInputChange(e.target.value)}
             onKeyDown={(e) => {
@@ -520,25 +517,78 @@ function App(): JSX.Element {
           </button>
         </div>
 
-        {/* <p className="search-hint">Try a query:</p> */}
-        <div className="example-query-grid">
-          {exampleQueryRows.map((row, rowIndex) => (
-            <div key={rowIndex} className="example-query-row">
-              {row.map((query) => (
-                <button
-                  key={query}
-                  type="button"
-                  className="example-query-pill"
-                  onClick={() => {
-                    setSearchInput(query)
-                    executeSearch(query)
-                  }}
-                >
-                  {query}
-                </button>
-              ))}
-            </div>
-          ))}
+        {/* Example queries: only show if not searched yet */}
+        {!hasSearched && (
+          <div className="example-query-grid fade-up-anim">
+            <p>Try a query:</p>
+            {exampleQueryRows.map((row, rowIndex) => (
+              <div key={rowIndex} className="example-query-row">
+                {row.map((query) => (
+                  <button
+                    key={query}
+                    type="button"
+                    className="example-query-pill"
+                    onClick={() => {
+                      setSearchInput(query)
+                      executeSearch(query)
+                    }}
+                  >
+                    {query}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* RAG toggle and ingredient filter controls */}
+        <div className="rag-ingredient-row fade-up-anim" style={{ marginTop: '1rem', marginBottom: '0.5rem', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', width: '100%', gap: '1.5rem' }}>
+          <button
+            type="button"
+            className={`rag-toggle-btn${useRag ? ' active' : ''}`}
+            onClick={() => setUseRag(v => !v)}
+          >
+            RAG {useRag ? '(On)' : '(Off)'}
+          </button>
+          <div className="ingredient-filter-group">
+            <input
+              type="text"
+              className="ingredient-input"
+              placeholder="Ingredient (e.g. fragrance)"
+              value={ingredientInput}
+              onChange={e => setIngredientInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); } }}
+              style={{ minWidth: 140 }}
+            />
+            <button
+              type="button"
+              className="include-btn"
+              onClick={() => {
+                if (ingredientInput.trim() && !includeIngredients.includes(ingredientInput.trim().toLowerCase())) {
+                  setIncludeIngredients([...includeIngredients, ingredientInput.trim().toLowerCase()]);
+                  setIngredientInput('');
+                }
+              }}
+            >Include</button>
+            <button
+              type="button"
+              className="exclude-btn"
+              onClick={() => {
+                if (ingredientInput.trim() && !excludeIngredients.includes(ingredientInput.trim().toLowerCase())) {
+                  setExcludeIngredients([...excludeIngredients, ingredientInput.trim().toLowerCase()]);
+                  setIngredientInput('');
+                }
+              }}
+            >Exclude</button>
+          </div>
+          <div className="ingredient-tags">
+            {includeIngredients.map((ing, i) => (
+              <span key={ing + i} className="ingredient-tag include">+{ing} <button type="button" onClick={() => setIncludeIngredients(includeIngredients.filter(x => x !== ing))}>×</button></span>
+            ))}
+            {excludeIngredients.map((ing, i) => (
+              <span key={ing + i} className="ingredient-tag exclude">-{ing} <button type="button" onClick={() => setExcludeIngredients(excludeIngredients.filter(x => x !== ing))}>×</button></span>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -566,64 +616,66 @@ function App(): JSX.Element {
         </select>
       </div>
 
+
       {/* Search results (always shown) */}
       <div id="answer-box">
-        {searchTerm.trim() && useLlm && (isSummaryLoading || summaryText || summaryError) && (
-          <section className="ai-summary-panel" aria-live="polite" aria-busy={isSummaryLoading}>
-            <span className="ai-summary-header">AI Overview of Top Matches</span>
-            {expandedQuery && (
-              <p className="ai-summary-expanded-query">
-                Expanded Query with RAG: <em>"{expandedQuery}"</em>
+        {searchTerm.trim() && useLlm && (
+          useRag ? (
+            (isSummaryLoading || summaryText || summaryError) && (
+              <section className="ai-summary-panel" aria-live="polite" aria-busy={isSummaryLoading}>
+                <span className="ai-summary-header">AI Overview of Top Matches</span>
+                {expandedQuery && (
+                  <p className="ai-summary-expanded-query">
+                    Expanded Query with RAG: <em>"{expandedQuery}"</em>
+                  </p>
+                )}
+
+                {isSummaryLoading && (
+                  <div className="ai-summary-loading" role="status">
+                    <span className="ai-summary-shimmer line-1" />
+                    <span className="ai-summary-shimmer line-2" />
+                  </div>
+                )}
+
+                {!isSummaryLoading && summaryText && (
+                  <p className="ai-summary-text">{renderWithBold(summaryText)}</p>
+                )}
+
+                {!isSummaryLoading && summaryError && (
+                  <p className="ai-summary-error">{summaryError}</p>
+                )}
+
+                <span className="ai-summary-top-products">Top Recommended Products:</span>
+
+                {!isSummaryLoading && summarySources.length > 0 && (
+                  <div className="ai-summary-sources" aria-label="Summary sources">
+                    {summarySources.map((source) => (
+                      source.url ? (
+                        <a key={`${source.id}-${source.name}`} href={source.url} target="_blank" rel="noreferrer" className="ai-summary-source-link">
+                          <span className="ai-summary-source-name">{source.name}</span>
+                          <span className="ai-summary-source-divider">by</span>
+                          <span className="ai-summary-source-brand">{source.brand}</span>
+                        </a>
+                      ) : (
+                        <span key={`${source.id}-${source.name}`} className="ai-summary-source-link muted">
+                          <span className="ai-summary-source-name">{source.name}</span>
+                          <span className="ai-summary-source-divider">·</span>
+                          <span className="ai-summary-source-brand">{source.brand}</span>
+                        </span>
+                      )
+                    ))}
+                  </div>
+                )}
+              </section>
+            )
+          ) : (
+            <section className="ai-summary-panel" aria-live="polite">
+              <span className="ai-summary-header">AI Overview of Top Matches</span>
+              <p className="ai-summary-error" style={{ marginTop: 12 }}>
+                AI overview and expanded user query not available. Please enable RAG search.
               </p>
-            )}
-
-            {isSummaryLoading && (
-              <div className="ai-summary-loading" role="status">
-                <span className="ai-summary-shimmer line-1" />
-                <span className="ai-summary-shimmer line-2" />
-              </div>
-            )}
-
-            {!isSummaryLoading && summaryText && (
-              <p className="ai-summary-text">{renderWithBold(summaryText)}</p>
-
-            )}
-
-            {!isSummaryLoading && summaryError && (
-              <p className="ai-summary-error">{summaryError}</p>
-            )}
-
-            <span className="ai-summary-top-products">Top Recommended Products:</span>
-
-            {!isSummaryLoading && summarySources.length > 0 && (
-              <div className="ai-summary-sources" aria-label="Summary sources">
-                {/* {summarySources.map((source) => (
-                  source.url ? (
-                    <a key={`${source.id}-${source.name}`} href={source.url} target="_blank" rel="noreferrer" className="ai-summary-source-link">
-                      {source.name}
-                    </a>
-                  ) : (
-                    <span key={`${source.id}-${source.name}`} className="ai-summary-source-link muted">{source.name}</span>
-                  )
-                ))} */}
-                {summarySources.map((source) => (
-                  source.url ? (
-                    <a key={`${source.id}-${source.name}`} href={source.url} target="_blank" rel="noreferrer" className="ai-summary-source-link">
-                      <span className="ai-summary-source-name">{source.name}</span>
-                      <span className="ai-summary-source-divider">by</span>
-                      <span className="ai-summary-source-brand">{source.brand}</span>
-                    </a>
-                  ) : (
-                    <span key={`${source.id}-${source.name}`} className="ai-summary-source-link muted">
-                       <span className="ai-summary-source-name">{source.name}</span>
-                      <span className="ai-summary-source-divider">·</span>
-                      <span className="ai-summary-source-brand">{source.brand}</span>
-                    </span>
-                  )
-                ))}
-              </div>
-            )}
-          </section>
+            </section>
+          )
         )}
 
         {searchTerm.trim() && isSearching && (
@@ -660,34 +712,109 @@ function App(): JSX.Element {
             <p className="empty-hint">Try a different search term or adjust your filters.</p>
           </div>
         )}
-        {searchTerm.trim() && isSearching && Array.from({ length: skeletonCount }).map((_, index) => (
-          <div key={`skeleton-${index}`} className="product-item skeleton-card" aria-hidden="true">
-            <div className="card-header">
-              <div className="skeleton-line skeleton-line-brand" />
-              <div className="skeleton-line skeleton-line-title" />
-            </div>
-
-            <div className="pill-row">
-              <span className="skeleton-pill" />
-              <span className="skeleton-pill" />
-            </div>
-
-            <div className="meta-row">
-              <div className="skeleton-line skeleton-line-stars" />
-              <div className="skeleton-line skeleton-line-reviews" />
-              <div className="skeleton-line skeleton-line-price" />
-            </div>
-
-            <div className="skeleton-line skeleton-line-body" />
-            <div className="skeleton-line skeleton-line-body short" />
-
-            <div className="match-score-wrapper">
-              <div className="skeleton-line skeleton-line-score" />
+        {searchTerm.trim() && isSearching && (
+          <>
+            {/* First row */}
+            {Array.from({ length: skeletonCount }).map((_, index) => (
+              <div key={`skeleton-${index}`} className="product-item skeleton-card" aria-hidden="true">
+                <div className="card-header">
+                  <div className="skeleton-line skeleton-line-brand" />
+                  <div className="skeleton-line skeleton-line-title" />
+                </div>
+                <div className="pill-row">
+                  <span className="skeleton-pill" />
+                  <span className="skeleton-pill" />
+                </div>
+                <div className="meta-row">
+                  <div className="skeleton-line skeleton-line-stars" />
+                  <div className="skeleton-line skeleton-line-reviews" />
+                  <div className="skeleton-line skeleton-line-price" />
+                </div>
+                <div className="skeleton-line skeleton-line-body" />
+                <div className="skeleton-line skeleton-line-body short" />
+                <div className="match-score-wrapper">
+                  <div className="skeleton-line skeleton-line-score" />
+                </div>
+              </div>
+            ))}
+            {/* Second row */}
+            {Array.from({ length: skeletonCount }).map((_, index) => (
+              <div key={`skeleton-row2-${index}`} className="product-item skeleton-card" aria-hidden="true">
+                <div className="card-header">
+                  <div className="skeleton-line skeleton-line-brand" />
+                  <div className="skeleton-line skeleton-line-title" />
+                </div>
+                <div className="pill-row">
+                  <span className="skeleton-pill" />
+                  <span className="skeleton-pill" />
+                </div>
+                <div className="meta-row">
+                  <div className="skeleton-line skeleton-line-stars" />
+                  <div className="skeleton-line skeleton-line-reviews" />
+                  <div className="skeleton-line skeleton-line-price" />
+                </div>
+                <div className="skeleton-line skeleton-line-body" />
+                <div className="skeleton-line skeleton-line-body short" />
+                <div className="match-score-wrapper">
+                  <div className="skeleton-line skeleton-line-score" />
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+        {!isSearching && visibleProducts.map((product, index) => (
+          <div
+            key={index}
+            className={`product-item${product.out_of_stock ? ' out-of-stock' : ''}`}
+            style={{ cursor: 'pointer' }}
+            onClick={() => {
+              setModalProduct(product);
+              // Find 3 most similar products by SVD dimensions (cosine similarity)
+              if (product.top_dimensions && products.length > 1) {
+                // Use top SVD dimensions as a vector
+                const dims = product.top_dimensions.top.map(d => d.contribution);
+                // Compute similarity for all other products with SVD info
+                const sims = products
+                  .filter(p => p.id !== product.id && p.top_dimensions)
+                  .map(p => {
+                    const otherDims = p.top_dimensions!.top.map(d => d.contribution);
+                    // Pad to same length
+                    const len = Math.min(dims.length, otherDims.length);
+                    const a = dims.slice(0, len);
+                    const b = otherDims.slice(0, len);
+                    // Cosine similarity
+                    const dot = a.reduce((sum, v, i) => sum + v * b[i], 0);
+                    const normA = Math.sqrt(a.reduce((sum, v) => sum + v * v, 0));
+                    const normB = Math.sqrt(b.reduce((sum, v) => sum + v * v, 0));
+                    const sim = normA && normB ? dot / (normA * normB) : 0;
+                    return { id: p.id, name: p.name, brand: p.brand, score: sim };
+                  });
+                sims.sort((a, b) => b.score - a.score);
+                setSimilarProducts(sims.slice(0, 3));
+              } else {
+                setSimilarProducts([]);
+              }
+            }}
+          >
+        {/* Modal for similar products */}
+        {modalProduct && (
+          <div className="modal-overlay" onClick={() => setModalProduct(null)}>
+            <div className="modal-content" onClick={e => e.stopPropagation()}>
+              <button className="modal-close" onClick={() => setModalProduct(null)}>&times;</button>
+              <h2>Similar to: {modalProduct.name}</h2>
+              <p><strong>Brand:</strong> {modalProduct.brand}</p>
+              <p><strong>Category:</strong> {normalizeCategory(modalProduct.category)}</p>
+              <p><strong>Score:</strong> {modalProduct.score.toFixed(1)}%</p>
+              <h3>Highly Similar Products</h3>
+              {similarProducts.length === 0 && <p>No similar products found.</p>}
+              <ul>
+                {similarProducts.map(sp => (
+                  <li key={sp.id}><strong>{sp.name}</strong> by {sp.brand} (Similarity: {(sp.score * 100).toFixed(1)}%)</li>
+                ))}
+              </ul>
             </div>
           </div>
-        ))}
-        {!isSearching && visibleProducts.map((product, index) => (
-          <div key={index} className={`product-item${product.out_of_stock ? ' out-of-stock' : ''}`}>
+        )}
 
             {/* Top row: product name/brand + safety score */}
             <div className="card-header">
@@ -801,9 +928,7 @@ function App(): JSX.Element {
       </div>
 
       {/* Chat (only when USE_LLM = True in routes.py) */}
-      {useLlm && <Chat onSearchTerm={handleChatSearch} currentSearchTerm={searchTerm} minimized />
-}
-      
+      {useLlm && <Chat onSearchTerm={handleChatSearch} currentSearchTerm={searchTerm} minimized />}
     </div>
   )
 }

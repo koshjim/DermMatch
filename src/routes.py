@@ -1024,7 +1024,7 @@ def register_routes(app):
                 sort_by=sort_by,
             )
 
-        top = pre_results[:5]
+        top = pre_results[:20]
         if not top:
             return jsonify({"summary": "", "sources": [], "total_results": len(pre_results), "used_llm": True})
 
