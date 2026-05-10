@@ -1,3 +1,201 @@
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(44, 60, 44, 0.32);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-content {
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 8px 32px rgba(58, 107, 74, 0.18);
+  padding: 2rem 2.2rem 1.5rem 2.2rem;
+  min-width: 320px;
+  max-width: 95vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+  animation: fade-up 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  background: none;
+  border: none;
+  font-size: 2rem;
+  color: #3A6B4A;
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  color: #3A6B4A;
+  font-size: 1.4rem;
+}
+
+.modal-content h3 {
+  margin-bottom: 0.5rem;
+  color: #5A8F6E;
+  font-size: 1.1rem;
+}
+
+.modal-content ul {
+  padding-left: 1.2em;
+  margin: 0.5em 0 0 0;
+}
+
+.modal-content li {
+  margin-bottom: 0.4em;
+  font-size: 1rem;
+}
+
+/* RAG toggle and ingredient filter row */
+.rag-ingredient-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  gap: 2rem;
+  margin-top: 1rem;
+  margin-left: 60px;
+  margin-bottom: 0.5rem;
+}
+
+.rag-toggle-btn {
+  border: 1.5px solid #C8DDD0;
+  background: #fff;
+  color: #3A6B4A;
+  border-radius: 999px;
+  padding: 8px 20px;
+  font-family: 'Open Sans', sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+  opacity: 0.85;
+}
+
+.rag-toggle-btn {
+  border: 1.5px solid #C8DDD0;
+  background: #fff;
+  color: #3A6B4A;
+  border-radius: 999px;
+  padding: 8px 20px;
+  font-family: 'Open Sans', sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+
+.rag-toggle-btn.active {
+  background: #3A6B4A;
+  color: #fff;
+  border-color: #3A6B4A;
+  opacity: 1;
+}
+
+.rag-toggle-btn:focus-visible {
+  outline: 2px solid #5A8F6E;
+  outline-offset: 2px;
+}
+
+.rag-toggle-btn:hover {
+  background: #2E5A3C;
+  color: #fff;
+  border-color: #2E5A3C;
+}
+
+
+.ingredient-input {
+  min-width: 180px;
+  margin-right: 1.2rem;
+  border: 1.5px solid #C8DDD0;
+  border-radius: 14px;
+  padding: 7px 12px;
+  min-width: 250px;
+  font-size: 1rem;
+  font-family: 'Open Sans', sans-serif;
+  color: #2D3B2D;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s;
+  cursor: text;
+}
+
+.ingredient-filter-group {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.ingredient-filter-group label {
+  margin-right: 0.4rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ingredient-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-left: 0;
+  margin-top: 0.5rem;
+}
+
+.ingredient-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-family: 'Open Sans', sans-serif;
+  padding: 3px 10px 3px 8px;
+  font-weight: 600;
+  background: #F5F7F4;
+  border: 1.5px solid #C8DDD0;
+  color: #3A6B4A;
+  margin-right: 2px;
+}
+
+.ingredient-tag.include {
+  background: #E4F2E9;
+  color: #2E6B42;
+  border-color: #A8D5B5;
+}
+
+.ingredient-tag.exclude {
+  background: #FAEBE8;
+  color: #923328;
+  border-color: #F0C0B8;
+}
+
+.ingredient-tag button {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.1em;
+  margin-left: 4px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.fade-up-anim {
+  animation: fade-up 0.7s ease 1.15s both;
+}
+
 /* ── Palette ────────────────────────────────────────────────────────────────
    --green-dark:   #3A6B4A   (forest green — headings, accents)
    --green-mid:    #5A8F6E   (sage — borders, hover)
@@ -155,22 +353,23 @@ body {
 }
 
 .example-query-grid {
-  margin-top: 8px;
+  margin-top: 15px;
+  margin-left: 60px;
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-direction: row;
+  align-items: flex-start;
   gap: 8px;
-  max-width: min(840px, 95%);
   opacity: 1;
   max-height: 200px;
-  overflow: hidden;
   transition: opacity 0.2s ease, max-height 0.3s ease 0.05s, margin 0.3s ease;
+  width: 100%;
+  justify-content: flex-start;
 }
 
 .example-query-row {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
   gap: 8px;
 }
 
@@ -188,7 +387,6 @@ body {
 }
 
 .example-query-pill:hover {
-  background: #F0F5F1;
   border-color: #5A8F6E;
   box-shadow: 0 2px 10px rgba(58, 107, 74, 0.12);
 }
@@ -214,16 +412,16 @@ body {
   align-items: center;
   margin-top: 2px;
   padding: 14px 18px;
-  width: 800px;
+  width: 1200px;
   max-width: 95%;
   cursor: text;
   transition: box-shadow 0.2s, border-color 0.2s, width 0.35s cubic-bezier(0.4, 0, 0.2, 1), padding 0.35s ease;
 }
 
-.searching .input-box {
+/* .searching .input-box {
   width: 800px;
   padding: 12px 16px;
-}
+} */
 
 .input-box:hover,
 .input-box:focus-within {
@@ -300,6 +498,28 @@ body {
   margin-top: 0;
   transition: opacity 0.3s ease 0.15s, max-height 0.35s ease 0.1s, margin-top 0.3s ease 0.1s;
 }
+  .filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: min(1500px, 95%);
+  max-width: 95%;
+  justify-content: center;
+  /* Hidden in landing */
+  opacity: 0;
+  pointer-events: none;
+  max-height: 0;
+  overflow: hidden;
+  margin-top: 0;
+  transition: opacity 0.3s ease 0.15s, max-height 0.35s ease 0.1s, margin-top 0.3s ease 0.1s;
+}
+
+.filter-bar p {
+  font-size: 0.95rem;
+  color: #3A6B4A;
+  font-weight: 500;
+}
 
 .searching .filter-bar {
   opacity: 1;
@@ -325,17 +545,70 @@ body {
   text-align: left;
 }
 
+.filter-bar label {
+  margin-right: 6px;
+  font-size: 15px;
+  color: #3A6B4A;
+  font-family: 'Open Sans', sans-serif;
+  font-weight: 600;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+.filter-bar select,
+.filter-bar input[type="number"] {
+  font-family: 'DM Sans', sans-serif;
+  padding: 8px 10px;
+  border: 1.5px solid #C8DDD0;
+  border-radius: 14px;
+  font-size: 15px;
+  font-family: 'Open Sans', sans-serif;
+  background: #fff;
+  color: #3A6B4A;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  text-align: left;
+  width: auto;
+  min-width: 40px;
+  max-width: 220px;
+}
+
 .filter-bar select {
   width: auto;
   min-width: 160px;
   max-width: 220px;
   appearance: none;
-  padding-right: 28px;
+  padding-right: 20px;
+  /* change dropdown spacing and icon */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath fill='%233A6B4A' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
   background-size: 12px 8px;
 }
+
+.filter-bar select {
+  width: auto;
+  min-width: 40px;
+  max-width: 220px;
+  appearance: none;
+  padding-right: 28px;
+  /* change dropdown spacing and icon */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath fill='%233A6B4A' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  background-size: 12px 8px;
+  padding-right: 44px;
+}
+
+/* Custom carrot for filter-bar select */
+.filter-bar {
+  position: relative;
+}
+
+
+
+
 
 .filter-bar select:nth-of-type(3) {
   min-width: 50px;
@@ -718,10 +991,10 @@ body {
   transition: box-shadow 0.2s, border-color 0.2s;
 }
 
-.product-item:hover {
+/* .product-item:hover {
   box-shadow: 0 4px 14px rgba(58, 107, 74, 0.13);
   border-color: #5A8F6E;
-}
+} */
 
 .skeleton-card {
   pointer-events: none;
@@ -1369,8 +1642,8 @@ body {
   position: fixed;
   right: 20px;
   bottom: 20px;
-  width: min(400px, calc(100vw - 32px));
-  height: min(72vh, 450px);
+  width: min(520px, calc(100vw - 32px));
+  height: min(82vh, 600px);
   display: flex;
   flex-direction: column;
   border: 1px solid #d9e5dd;
@@ -1445,9 +1718,10 @@ body {
 .chat-header-title {
   margin: 0;
   font-family: 'Montserrat', sans-serif;
-  font-size: 1.0rem;
-  font-weight: 700;
+  font-size: 1.1rem;
+  font-weight: 800;
   color: #2f5f3f;
+  letter-spacing: 0.01em;
 }
 
 .chat-close-button {
@@ -1487,8 +1761,28 @@ body {
   padding: 14px 14px 8px;
 }
 
+
 .message {
   margin-bottom: 1em;
+  padding: 0.7em 1.1em;
+  border-radius: 16px;
+  max-width: 85%;
+  width: fit-content;
+  box-shadow: 0 2px 8px rgba(58, 107, 74, 0.06);
+}
+
+.message.user {
+  background: #C8DDD0;
+  color: #2D3B2D;
+  align-self: flex-end;
+  margin-left: auto;
+}
+
+.message.assistant {
+  background: #fff;
+  color: #3A6B4A;
+  align-self: flex-start;
+  margin-right: auto;
 }
 
 .message p {
@@ -1500,8 +1794,8 @@ body {
 }
 
 .message.user p {
-  white-space: pre-wrap;
-  color: #386f4ae8;
+  font-family: 'Montserrat', sans-serif;
+  color: #2D3B2D;
 }
 
 .message.assistant p,
@@ -1586,14 +1880,14 @@ body {
 
 .chat-bar .input-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   max-width: 100%;
   margin: 0;
   border-radius: 16px;
   border: 1.5px solid #C8DDD0;
   background: #fff;
   padding: 8px 8px 8px 12px;
-  gap: 8px;
+  gap: 4px;
 }
 
 .chat-bar .input-row img {
@@ -1606,8 +1900,8 @@ body {
 .chat-bar .input-row textarea {
   flex: 1;
   min-width: 0;
-  min-height: 40px;
-  max-height: 108px;
+  min-height: 64px;
+  max-height: 180px;
   resize: none;
   overflow-y: auto;
   font-size: 15px;
@@ -1615,22 +1909,26 @@ body {
   outline: 0;
   background: transparent;
   font-family: 'Montserrat', sans-serif;
-  line-height: 1.35;
+  line-height: 1.5;
   color: #2D3B2D;
+  padding: 8px 0px;
+  text-align: left;
+  box-sizing: border-box;
 }
 
 .chat-bar .input-row button {
   flex-shrink: 0;
   padding: 8px 16px;
-  font-size: 13px;
-  border-radius: 20px;
+  font-size: 15px;
+  border-radius: 24px;
   border: none;
   background: #3A6B4A;
   color: #fff;
   cursor: pointer;
   font-family: 'Montserrat', sans-serif;
-  font-weight: 600;
+  font-weight: 700;
   transition: background 0.15s;
+  margin-left: 8px;
 }
 
 .chat-bar .input-row button:hover:not(:disabled) {

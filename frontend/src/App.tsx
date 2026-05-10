@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import React from 'react';
 import './App.css'
 import SearchIcon from './assets/mag.png'
 import { Product } from './types'
@@ -183,6 +184,29 @@ function SafetyBadge({ score }: { score: number }) {
   return <span className={`safety-badge safety-${level}`}>{label} ({Math.round(score)})  ⓘ </span>
 }
 
+function getSimilarProducts(
+  product: Product,
+  allProducts: Product[]
+): { id: number; name: string; brand: string; score: number }[] {
+  if (!product.top_dimensions || allProducts.length <= 1) return [];
+  const dims = product.top_dimensions.top.map(d => d.contribution);
+  const sims = allProducts
+    .filter(p => p.id !== product.id && p.top_dimensions)
+    .map(p => {
+      const otherDims = p.top_dimensions!.top.map(d => d.contribution);
+      const len = Math.min(dims.length, otherDims.length);
+      const a = dims.slice(0, len);
+      const b = otherDims.slice(0, len);
+      const dot = a.reduce((sum, v, i) => sum + v * b[i], 0);
+      const normA = Math.sqrt(a.reduce((sum, v) => sum + v * v, 0));
+      const normB = Math.sqrt(b.reduce((sum, v) => sum + v * v, 0));
+      const sim = normA && normB ? dot / (normA * normB) : 0;
+      return { id: p.id, name: p.name, brand: p.brand, score: sim };
+    });
+  sims.sort((a, b) => b.score - a.score);
+  return sims.slice(0, 3);
+}
+
 function SafetyInfo({ product }: { product: Product }) {
   const score = Math.round(product.safety_score)
   const flaggedIngredients = product.flagged_ingredients ?? []
@@ -201,19 +225,19 @@ function SafetyInfo({ product }: { product: Product }) {
         <SafetyBadge score={product.safety_score} />
       </summary>
       <div className="safety-info-panel">
-        <p className="safety-info-title">How Clean Score Works:</p>
-        <p>Each product's clean score starts at 100, then there are penalties for flagged chemicals found in its ingredient list (according to the California Proposition 65 guidelines)</p>
-        <p>Keep in mind that the quantity of each flagged ingredient isn't considered in the score calculation.</p>
         {/* <p>Each ingredient you asked to avoid in your query subtracts an extra 10 points when present.</p> */}
         <p className="safety-info-reason">{scoreReason}</p>
-        <p className="safety-info-stats">Flagged chemicals found: {flaggedIngredients.length}</p>
-        <p className="safety-info-stats">Avoided ingredients matched: {avoidedIngredients.length}</p>
+        <p >Flagged chemicals found: {flaggedIngredients.length}</p>
         {flaggedIngredients.length > 0 && (
           <p className="safety-info-list">Flagged: {flaggedIngredients.slice(0, 5).join(', ')}{flaggedIngredients.length > 5 ? ', ...' : ''}</p>
         )}
+        <p >Avoided ingredients matched: {avoidedIngredients.length}</p>
         {avoidedIngredients.length > 0 && (
           <p className="safety-info-list">Avoided matches: {avoidedIngredients.slice(0, 5).join(', ')}{avoidedIngredients.length > 5 ? ', ...' : ''}</p>
         )}
+        <p className="safety-info-title">How Clean Score Works:</p>
+        <p>Each product's clean score starts at 100, then there are penalties for flagged chemicals found in its ingredient list (according to the California Proposition 65 guidelines)</p>
+        <p>Keep in mind that the quantity of each flagged ingredient isn't considered in the score calculation.</p>
       </div>
     </details>
   )
@@ -230,6 +254,10 @@ function renderWithBold(text: string): React.ReactNode {
 
 function App(): JSX.Element {
   const [useLlm, setUseLlm] = useState<boolean | null>(null)
+  const [useRag, setUseRag] = useState<boolean>(true)
+  const [ingredientInput, setIngredientInput] = useState('')
+  const [includeIngredients, setIncludeIngredients] = useState<string[]>([])
+  const [excludeIngredients, setExcludeIngredients] = useState<string[]>([])
   const [searchInput, setSearchInput] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [hasSearched, setHasSearched] = useState<boolean>(false)
@@ -245,30 +273,9 @@ function App(): JSX.Element {
   const [filters, setFilters] = useState<Filters>({ category: '', minPrice: '', maxPrice: '', minRating: '', sortBy: 'relevance' })
   const latestRequestId = useRef<number>(0)
   const [expandedQuery, setExpandedQuery] = useState<string>('')
-
-
-  // useEffect(() => {
-  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
-  //   fetch('/api/categories').then(r => r.json()).then(setCategories)
-  // }, [])
-
-
-  // useEffect(() => {
-  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
-  //   fetch('/api/categories').then(r => r.json()).then(setCategories)
-  // }, [])
-
-  // useEffect(() => {
-  //   fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
-  //   fetch('/api/categories').then(r => r.json()).then((raw: string[]) => {
-  //     // Normalize and deduplicate API categories, then merge with canonical list
-  //     const normalized = Array.from(new Set(raw.map(normalizeCategory)))
-  //     const canonical = new Set(CANONICAL_CATEGORIES)
-  //     // Put canonical categories first, then any extras from the API not in canonical
-  //     const extras = normalized.filter(c => !canonical.has(c))
-  //     setCategories([...CANONICAL_CATEGORIES, ...extras])
-  //   })
-  // }, [])
+  // const [ingredientMode, setIngredientMode] = useState<'include' | 'exclude'>('include');
+  const [ingredientInputInclude, setIngredientInputInclude] = useState('');
+  const [ingredientInputExclude, setIngredientInputExclude] = useState('');
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
@@ -276,7 +283,14 @@ function App(): JSX.Element {
   }, [])
 
   const runSearch = async (term: string, currentFilters: Filters): Promise<void> => {
-    const trimmed = term.trim()
+    let query = term.trim();
+    if (ingredientInputInclude.trim()) {
+      query += ' include:' + ingredientInputInclude.trim();
+    }
+    if (ingredientInputExclude.trim()) {
+      query += ' exclude:' + ingredientInputExclude.trim();
+    }
+    const trimmed = query.trim();
     if (trimmed === '') {
       setProducts([])
       setIsSearching(false)
@@ -293,6 +307,8 @@ function App(): JSX.Element {
     if (currentFilters.maxPrice) params.set('max_price', currentFilters.maxPrice)
     if (currentFilters.minRating) params.set('min_rating', currentFilters.minRating)
     if (currentFilters.sortBy !== 'relevance') params.set('sort_by', currentFilters.sortBy)
+    // Add RAG toggle
+    params.set('use_rag', useRag ? 'true' : 'false')
 
     const runSummary = async (irResults: Product[]): Promise<void> => {
       if (!useLlm) {
@@ -351,49 +367,23 @@ function App(): JSX.Element {
     }
 
     try {
-      // Phase 1: instant results without LLM query expansion
-      const fastParams = new URLSearchParams(params)
-      fastParams.set('use_rag', 'false')
-      const fastResponse = await fetch(`/api/products/search?${fastParams}`)
-      if (!fastResponse.ok) throw new Error(`Search failed: ${fastResponse.status}`)
-      const fastData: Product[] = await fastResponse.json()
+      // Only one phase: useRag controls whether RAG is used in backend
+      const response = await fetch(`/api/products/search?${params.toString()}&include_expanded=true`)
+      if (!response.ok) throw new Error(`Search failed: ${response.status}`)
+      const data: ExpandedSearchResponse | Product[] = await response.json()
       if (requestId !== latestRequestId.current) return
-      setProducts(fastData)
-      setIsSearching(false)
-
-      // Phase 2: silently refine with LLM-expanded query in background
-      if (useLlm) {
-        setIsRefining(true)
-        void (async () => {
-          try {
-            const ragResponse = await fetch(`/api/products/search?${params}&include_expanded=true`)
-            if (ragResponse.ok) {
-              const ragData: ExpandedSearchResponse = await ragResponse.json()
-              if (requestId === latestRequestId.current) {
-                setProducts(ragData.results)
-                setExpandedQuery(ragData.rag_query || '')
-                // Summary is fired after the refined results are confirmed, so
-                // it always describes the exact list the user is looking at.
-                void runSummary(ragData.results)
-              }
-            } else {
-              // RAG search failed — summarise the fast results instead
-              if (requestId === latestRequestId.current) {
-                void runSummary(fastData)
-              }
-            }
-          }
-          finally {
-            if (requestId === latestRequestId.current) setIsRefining(false)
-          }
-        })()
+      // If include_expanded, expect ExpandedSearchResponse, else Product[]
+      if (Array.isArray(data)) {
+        setProducts(data)
+        setExpandedQuery('')
+        void runSummary(data as Product[])
       } else {
-        // LLM off — no summary needed
-        setSummaryText('')
-        setSummarySources([])
-        setSummaryError('')
-        setIsSummaryLoading(false)
+        setProducts(data.results)
+        setExpandedQuery(data.rag_query || '')
+        void runSummary(data.results)
       }
+      setIsSearching(false)
+      setIsRefining(false)
     } catch {
       if (requestId === latestRequestId.current) {
         setProducts([])
@@ -470,16 +460,30 @@ function App(): JSX.Element {
 
   if (useLlm === null) return <></>
 
-  const visibleProducts = products.slice(0, visibleCount)
+  // Filter products by included/excluded ingredients
+  const filteredProducts = products.filter(product => {
+    const ingredients = (product.ingredients || '').toLowerCase();
+    // Exclude if any excluded ingredient is present
+    if (excludeIngredients.some(ing => ingredients.includes(ing))) return false;
+    // If includes are set, only show if all are present
+    if (includeIngredients.length > 0 && !includeIngredients.every(ing => ingredients.includes(ing))) return false;
+    return true;
+  });
+  const visibleProducts = filteredProducts.slice(0, visibleCount)
   const canShowMore = products.length > visibleCount
   const skeletonCount = 6
   const exampleQueries = [
-    'face oil without titanium dioxide',
-    'toner for dry, acne-prone skin',
     'moisturizer for eczema',
-    'cleanser with niacinamide',
-    'i have acne problems. find me a serum that targets that',
+    'toner for dry, sensitive skin',
+    'cleanser without niacinamide',
+    'i have acne. find me a serum that targets it',
   ]
+  // Compose a display query with included/excluded ingredients (for display in result count and expanded query)
+  const displayIngredientQuery = [
+    ingredientInputInclude && `including ${ingredientInputInclude}`,
+    ingredientInputExclude && `excluding ${ingredientInputExclude}`
+  ].filter(Boolean).join(' ');
+  const displayQuery = [searchTerm, displayIngredientQuery].filter(Boolean).join(' ').trim();
   const splitIndex = Math.ceil(exampleQueries.length / 2)
   const exampleQueryRows = [
     exampleQueries.slice(0, splitIndex),
@@ -491,14 +495,13 @@ function App(): JSX.Element {
     <div className={`full-body-container ${useLlm ? 'llm-mode' : ''} ${hasSearched ? 'searching' : ''}`}>
       {/* Search bar (always shown) */}
       <div className="top-text">
-
         <h1>DermMatch</h1>
         <p className="landing-tagline">Find clean, safe skincare — powered by ingredients</p>
         <div className="input-box" onClick={() => document.getElementById('search-input')?.focus()}>
           <img src={SearchIcon} alt="search" />
           <input
             id="search-input"
-            placeholder="Search for a Sephora Skincare product"
+            placeholder="Search for a skincare product (e.g. 'moisturizer for dry skin')"
             value={searchInput}
             onChange={(e) => handleSearchInputChange(e.target.value)}
             onKeyDown={(e) => {
@@ -520,30 +523,75 @@ function App(): JSX.Element {
           </button>
         </div>
 
-        {/* <p className="search-hint">Try a query:</p> */}
-        <div className="example-query-grid">
-          {exampleQueryRows.map((row, rowIndex) => (
-            <div key={rowIndex} className="example-query-row">
-              {row.map((query) => (
-                <button
-                  key={query}
-                  type="button"
-                  className="example-query-pill"
-                  onClick={() => {
-                    setSearchInput(query)
-                    executeSearch(query)
-                  }}
-                >
-                  {query}
-                </button>
-              ))}
-            </div>
-          ))}
+        {/* Example queries: only show if not searched yet */}
+        {!hasSearched && (
+          <div className="example-query-grid fade-up-anim">
+            <p>Try a query:</p>
+            {exampleQueryRows.map((row, rowIndex) => (
+              <div key={rowIndex} className="example-query-row">
+                {row.map((query) => (
+                  <button
+                    key={query}
+                    type="button"
+                    className="example-query-pill"
+                    onClick={() => {
+                      setSearchInput(query)
+                      executeSearch(query)
+                    }}
+                  >
+                    {query}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* RAG toggle and ingredient filter controls */}
+        <div className="rag-ingredient-row fade-up-anim">
+          <button
+            type="button"
+            className={`rag-toggle-btn${useRag ? ' active' : ''}`}
+            onClick={() => setUseRag(v => !v)}
+          >
+            RAG {useRag ? '(On)' : '(Off)'}
+          </button>
+          <div className="ingredient-filter-group">
+            <label style={{ color: '#3A6B4A' }}>Include Ingredients:</label>
+            <input
+              type="text"
+              className="ingredient-input"
+              placeholder="Add an ingredient to include"
+              value={ingredientInputInclude}
+              onChange={e => setIngredientInputInclude(e.target.value)}
+            />
+            <label style={{ color: '#3A6B4A' }}>Exclude Ingredients:</label>
+            <input
+              type="text"
+              className="ingredient-input"
+              placeholder="Add an ingredient to exclude"
+              value={ingredientInputExclude}
+              onChange={e => setIngredientInputExclude(e.target.value)}
+            />
+          </div>
+          {/* <div className="ingredient-tags">
+            {ingredientInputInclude && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.2rem' }}>
+                <span className="ingredient-tag include">{ingredientInputInclude}</span>
+              </div>
+            )}
+            {ingredientInputExclude && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <span className="ingredient-tag exclude">{ingredientInputExclude}</span>
+              </div>
+            )}
+          </div> */}
         </div>
       </div>
 
       {/* Filters & sort */}
       <div className="filter-bar">
+        <p>Filter By:</p>
         <select value={filters.category} onChange={e => handleFilterChange('category', e.target.value)}>
           <option value="">All Categories</option>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
@@ -552,10 +600,10 @@ function App(): JSX.Element {
         <input type="number" placeholder="Max $" min={0} value={filters.maxPrice} onChange={e => handleFilterChange('maxPrice', e.target.value)} />
         <select value={filters.minRating} onChange={e => handleFilterChange('minRating', e.target.value)}>
           <option value="">Any Rating</option>
-          <option value="3">3+ stars</option>
-          <option value="3.5">3.5+ stars</option>
-          <option value="4">4+ stars</option>
           <option value="4.5">4.5+ stars</option>
+          <option value="4">4+ stars</option>
+          <option value="3.5">3.5+ stars</option>
+          <option value="3">3+ stars</option>
         </select>
         <select value={filters.sortBy} onChange={e => handleFilterChange('sortBy', e.target.value)}>
           <option value="relevance">Sort: Relevance</option>
@@ -566,75 +614,75 @@ function App(): JSX.Element {
         </select>
       </div>
 
+
       {/* Search results (always shown) */}
       <div id="answer-box">
-        {searchTerm.trim() && useLlm && (isSummaryLoading || summaryText || summaryError) && (
-          <section className="ai-summary-panel" aria-live="polite" aria-busy={isSummaryLoading}>
-            <span className="ai-summary-header">AI Overview of Top Matches</span>
-            {expandedQuery && (
-              <p className="ai-summary-expanded-query">
-                Expanded Query with RAG: <em>"{expandedQuery}"</em>
+        {searchTerm.trim() && useLlm && (
+          useRag ? (
+            (isSummaryLoading || summaryText || summaryError) && (
+              <section className="ai-summary-panel" aria-live="polite" aria-busy={isSummaryLoading}>
+                <span className="ai-summary-header">AI Overview of Top Matches</span>
+                {expandedQuery && (
+                  <p className="ai-summary-expanded-query">
+                    Expanded Query with RAG: <em>"{[expandedQuery, displayIngredientQuery].filter(Boolean).join(' ').trim()}"</em>
+                  </p>
+                )}
+
+                {isSummaryLoading && (
+                  <div className="ai-summary-loading" role="status">
+                    <span className="ai-summary-shimmer line-1" />
+                    <span className="ai-summary-shimmer line-2" />
+                  </div>
+                )}
+
+                {!isSummaryLoading && summaryText && (
+                  <p className="ai-summary-text">{renderWithBold(summaryText)}</p>
+                )}
+
+                {!isSummaryLoading && summaryError && (
+                  <p className="ai-summary-error">{summaryError}</p>
+                )}
+
+                <span className="ai-summary-top-products">Top Recommended Products:</span>
+
+                {!isSummaryLoading && summarySources.length > 0 && (
+                  <div className="ai-summary-sources" aria-label="Summary sources">
+                    {summarySources.map((source) => (
+                      source.url ? (
+                        <a key={`${source.id}-${source.name}`} href={source.url} target="_blank" rel="noreferrer" className="ai-summary-source-link">
+                          <span className="ai-summary-source-name">{source.name}</span>
+                          <span className="ai-summary-source-divider">by</span>
+                          <span className="ai-summary-source-brand">{source.brand}</span>
+                        </a>
+                      ) : (
+                        <span key={`${source.id}-${source.name}`} className="ai-summary-source-link muted">
+                          <span className="ai-summary-source-name">{source.name}</span>
+                          <span className="ai-summary-source-divider">·</span>
+                          <span className="ai-summary-source-brand">{source.brand}</span>
+                        </span>
+                      )
+                    ))}
+                  </div>
+                )}
+              </section>
+            )
+          ) : (
+            <section className="ai-summary-panel" aria-live="polite">
+              <span className="ai-summary-header">AI Overview of Top Matches</span>
+              <p className="ai-summary-error" style={{ marginTop: 12 }}>
+                AI overview and expanded user query not available. Please enable RAG search.
               </p>
-            )}
-
-            {isSummaryLoading && (
-              <div className="ai-summary-loading" role="status">
-                <span className="ai-summary-shimmer line-1" />
-                <span className="ai-summary-shimmer line-2" />
-              </div>
-            )}
-
-            {!isSummaryLoading && summaryText && (
-              <p className="ai-summary-text">{renderWithBold(summaryText)}</p>
-
-            )}
-
-            {!isSummaryLoading && summaryError && (
-              <p className="ai-summary-error">{summaryError}</p>
-            )}
-
-            <span className="ai-summary-top-products">Top Recommended Products:</span>
-
-            {!isSummaryLoading && summarySources.length > 0 && (
-              <div className="ai-summary-sources" aria-label="Summary sources">
-                {/* {summarySources.map((source) => (
-                  source.url ? (
-                    <a key={`${source.id}-${source.name}`} href={source.url} target="_blank" rel="noreferrer" className="ai-summary-source-link">
-                      {source.name}
-                    </a>
-                  ) : (
-                    <span key={`${source.id}-${source.name}`} className="ai-summary-source-link muted">{source.name}</span>
-                  )
-                ))} */}
-                {summarySources.map((source) => (
-                  source.url ? (
-                    <a key={`${source.id}-${source.name}`} href={source.url} target="_blank" rel="noreferrer" className="ai-summary-source-link">
-                      <span className="ai-summary-source-name">{source.name}</span>
-                      <span className="ai-summary-source-divider">by</span>
-                      <span className="ai-summary-source-brand">{source.brand}</span>
-                    </a>
-                  ) : (
-                    <span key={`${source.id}-${source.name}`} className="ai-summary-source-link muted">
-                       <span className="ai-summary-source-name">{source.name}</span>
-                      <span className="ai-summary-source-divider">·</span>
-                      <span className="ai-summary-source-brand">{source.brand}</span>
-                    </span>
-                  )
-                ))}
-              </div>
-            )}
-          </section>
+            </section>
+          )
         )}
 
         {searchTerm.trim() && isSearching && (
           <p className="search-status">Searching...</p>
         )}
         {searchTerm.trim() && !isSearching && products.length > 0 && (
-          <>
-            <p className="result-count">
-              {products.length} result{products.length !== 1 ? 's' : ''} for "{expandedQuery}".
-              {isRefining && <span className="refining-badge"> Refining with AI…</span>}
-            </p>
+          <p className="result-count">
+            {products.length} result{products.length !== 1 ? 's' : ''} for "{displayQuery}".
+            {isRefining && <span className="refining-badge"> Refining with AI…</span>}
             {didYouMean && (
               <p className="did-you-mean-line">
                 <span className="did-you-mean-copy">Did you mean</span>{' '}
@@ -650,7 +698,7 @@ function App(): JSX.Element {
                   {didYouMean}
                 </button>
                 <span className="did-you-mean-copy">"?</span>
-              </p>
+              </>
             )}
           </>
         )}
@@ -660,34 +708,87 @@ function App(): JSX.Element {
             <p className="empty-hint">Try a different search term or adjust your filters.</p>
           </div>
         )}
-        {searchTerm.trim() && isSearching && Array.from({ length: skeletonCount }).map((_, index) => (
-          <div key={`skeleton-${index}`} className="product-item skeleton-card" aria-hidden="true">
-            <div className="card-header">
-              <div className="skeleton-line skeleton-line-brand" />
-              <div className="skeleton-line skeleton-line-title" />
-            </div>
-
-            <div className="pill-row">
-              <span className="skeleton-pill" />
-              <span className="skeleton-pill" />
-            </div>
-
-            <div className="meta-row">
-              <div className="skeleton-line skeleton-line-stars" />
-              <div className="skeleton-line skeleton-line-reviews" />
-              <div className="skeleton-line skeleton-line-price" />
-            </div>
-
-            <div className="skeleton-line skeleton-line-body" />
-            <div className="skeleton-line skeleton-line-body short" />
-
-            <div className="match-score-wrapper">
-              <div className="skeleton-line skeleton-line-score" />
-            </div>
-          </div>
-        ))}
+        {searchTerm.trim() && isSearching && (
+          <>
+            {/* First row */}
+            {Array.from({ length: skeletonCount }).map((_, index) => (
+              <div key={`skeleton-${index}`} className="product-item skeleton-card" aria-hidden="true">
+                <div className="card-header">
+                  <div className="skeleton-line skeleton-line-brand" />
+                  <div className="skeleton-line skeleton-line-title" />
+                </div>
+                <div className="pill-row">
+                  <span className="skeleton-pill" />
+                  <span className="skeleton-pill" />
+                </div>
+                <div className="meta-row">
+                  <div className="skeleton-line skeleton-line-stars" />
+                  <div className="skeleton-line skeleton-line-reviews" />
+                  <div className="skeleton-line skeleton-line-price" />
+                </div>
+                <div className="skeleton-line skeleton-line-body" />
+                <div className="skeleton-line skeleton-line-body short" />
+                <div className="match-score-wrapper">
+                  <div className="skeleton-line skeleton-line-score" />
+                </div>
+              </div>
+            ))}
+            {/* Second row */}
+            {Array.from({ length: skeletonCount }).map((_, index) => (
+              <div key={`skeleton-row2-${index}`} className="product-item skeleton-card" aria-hidden="true">
+                <div className="card-header">
+                  <div className="skeleton-line skeleton-line-brand" />
+                  <div className="skeleton-line skeleton-line-title" />
+                </div>
+                <div className="pill-row">
+                  <span className="skeleton-pill" />
+                  <span className="skeleton-pill" />
+                </div>
+                <div className="meta-row">
+                  <div className="skeleton-line skeleton-line-stars" />
+                  <div className="skeleton-line skeleton-line-reviews" />
+                  <div className="skeleton-line skeleton-line-price" />
+                </div>
+                <div className="skeleton-line skeleton-line-body" />
+                <div className="skeleton-line skeleton-line-body short" />
+                <div className="match-score-wrapper">
+                  <div className="skeleton-line skeleton-line-score" />
+                </div>
+              </div>
+            ))}
+          </>
+        )}
         {!isSearching && visibleProducts.map((product, index) => (
-          <div key={index} className={`product-item${product.out_of_stock ? ' out-of-stock' : ''}`}>
+          <div
+            key={index}
+            className={`product-item${product.out_of_stock ? ' out-of-stock' : ''}`}
+            // style={{ cursor: 'pointer' }}
+            onClick={() => {
+              // Find 3 most similar products by SVD dimensions (cosine similarity)
+              if (product.top_dimensions && products.length > 1) {
+                // Use top SVD dimensions as a vector
+                const dims = product.top_dimensions.top.map(d => d.contribution);
+                // Compute similarity for all other products with SVD info
+                const sims = products
+                  .filter(p => p.id !== product.id && p.top_dimensions)
+                  .map(p => {
+                    const otherDims = p.top_dimensions!.top.map(d => d.contribution);
+                    // Pad to same length
+                    const len = Math.min(dims.length, otherDims.length);
+                    const a = dims.slice(0, len);
+                    const b = otherDims.slice(0, len);
+                    // Cosine similarity
+                    const dot = a.reduce((sum, v, i) => sum + v * b[i], 0);
+                    const normA = Math.sqrt(a.reduce((sum, v) => sum + v * v, 0));
+                    const normB = Math.sqrt(b.reduce((sum, v) => sum + v * v, 0));
+                    const sim = normA && normB ? dot / (normA * normB) : 0;
+                    return { id: p.id, name: p.name, brand: p.brand, score: sim };
+                  });
+                sims.sort((a, b) => b.score - a.score);
+              } else {
+              }
+            }}
+          >
 
             {/* Top row: product name/brand + safety score */}
             <div className="card-header">
@@ -744,6 +845,7 @@ function App(): JSX.Element {
                 )}
               </span>
             </div>
+
             {product.description && (
               <details className="description-dropdown">
                 <summary>Description</summary>
@@ -776,12 +878,31 @@ function App(): JSX.Element {
               </details>
             )}
 
-            {/* {product.description && (
+            {product.top_dimensions && (
               <details className="description-dropdown">
-                <summary>Description</summary>
-                <p className="product-description">{product.description}</p>
+                <summary>Similar Products</summary>
+                {(() => {
+                  const similar = getSimilarProducts(product, products);
+                  return similar.length === 0 ? (
+                    <p className="product-description" style={{ marginTop: '0.4rem', color: '#9EAF9E' }}>
+                      No similar products found.
+                    </p>
+                  ) : (
+                    <ul style={{ margin: '0.4rem 0 0 0', padding: '0 0 0 1.1em' }}>
+                      {similar.map(sp => (
+                        <li key={sp.id} style={{ marginBottom: '0.3em', fontSize: '0.88rem', color: '#4A5A4A' }}>
+                          <span style={{ fontWeight: 600, color: '#3A6B4A' }}>{sp.name}</span>
+                          {' '}by {sp.brand}
+                          <span style={{ color: '#9EAF9E', marginLeft: '6px' }}>
+                            {(sp.score * 100).toFixed(1)}% match
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
               </details>
-            )} */}
+            )}
 
             <div className="match-score-wrapper">
               <p className="match-score-label">Match Score: {product.score.toFixed(1)}%</p>
@@ -789,21 +910,20 @@ function App(): JSX.Element {
           </div>
         ))}
 
+        {/* Show more button */}
         {searchTerm.trim() && !isSearching && canShowMore && (
           <button
             type="button"
             className="show-more-button"
             onClick={() => setVisibleCount((current) => current + 60)}
           >
-            Show {products.length - visibleCount} more products
+            Show {Math.min(60, products.length - visibleCount)} more products
           </button>
         )}
       </div>
 
       {/* Chat (only when USE_LLM = True in routes.py) */}
-      {useLlm && <Chat onSearchTerm={handleChatSearch} currentSearchTerm={searchTerm} minimized />
-}
-      
+      {useLlm && <Chat onSearchTerm={handleChatSearch} currentSearchTerm={searchTerm} minimized />}
     </div>
   )
 }
