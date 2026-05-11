@@ -65,32 +65,25 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   width: 100%;
-  gap: 2rem;
+  gap: 1rem;
   margin-top: 1rem;
-  margin-left: 60px;
+  margin-left: 0;
   margin-bottom: 0.5rem;
 }
 
-.rag-toggle-btn {
-  border: 1.5px solid #C8DDD0;
-  background: #fff;
-  color: #3A6B4A;
-  border-radius: 999px;
-  padding: 8px 20px;
-  font-family: 'Open Sans', sans-serif;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.18s, color 0.18s, border-color 0.18s;
-  opacity: 0.85;
+.searching .rag-ingredient-row {
+  justify-content: flex-start;
+  margin-left: 60px;
 }
+
 
 .rag-toggle-btn {
   border: 1.5px solid #C8DDD0;
   background: #fff;
   color: #3A6B4A;
+  /* font: #3A6B4A; */
   border-radius: 999px;
   padding: 8px 20px;
   font-family: 'Open Sans', sans-serif;
@@ -113,9 +106,11 @@
 }
 
 .rag-toggle-btn:hover {
-  background: #2E5A3C;
-  color: #fff;
-  border-color: #2E5A3C;
+  /* background: #2E5A3C; */
+  /* color: #fff;
+  border-color: #2E5A3C; */
+  border-color: #5A8F6E;
+  box-shadow: 0 2px 10px rgba(58, 107, 74, 0.12);
 }
 
 
@@ -125,7 +120,7 @@
   border: 1.5px solid #C8DDD0;
   border-radius: 14px;
   padding: 7px 12px;
-  min-width: 250px;
+  min-width: 100px;
   font-size: 1rem;
   font-family: 'Open Sans', sans-serif;
   color: #2D3B2D;
@@ -354,7 +349,7 @@ body {
 
 .example-query-grid {
   margin-top: 15px;
-  margin-left: 60px;
+  margin-left: 0;
   display: flex;
   flex-direction: row;
   align-items: flex-start;
@@ -363,7 +358,7 @@ body {
   max-height: 200px;
   transition: opacity 0.2s ease, max-height 0.3s ease 0.05s, margin 0.3s ease;
   width: 100%;
-  justify-content: flex-start;
+  justify-content: center;
 }
 
 .example-query-row {
@@ -486,26 +481,13 @@ body {
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  width: min(1500px, 95%);
-  max-width: 95%;
-  justify-content: center;
-  /* Hidden in landing */
-  opacity: 0;
-  pointer-events: none;
-  max-height: 0;
-  overflow: hidden;
-  margin-top: 0;
-  transition: opacity 0.3s ease 0.15s, max-height 0.35s ease 0.1s, margin-top 0.3s ease 0.1s;
-}
-  .filter-bar {
-  display: flex;
-  flex-wrap: wrap;
+  flex-direction: row;
   align-items: center;
   gap: 10px;
   width: min(1500px, 95%);
   max-width: 95%;
-  justify-content: center;
+  justify-content: flex-start;
+  margin-left: 300px;
   /* Hidden in landing */
   opacity: 0;
   pointer-events: none;
