@@ -255,9 +255,6 @@ function renderWithBold(text: string): React.ReactNode {
 function App(): JSX.Element {
   const [useLlm, setUseLlm] = useState<boolean | null>(null)
   const [useRag, setUseRag] = useState<boolean>(true)
-  const [ingredientInput, setIngredientInput] = useState('')
-  const [includeIngredients, setIncludeIngredients] = useState<string[]>([])
-  const [excludeIngredients, setExcludeIngredients] = useState<string[]>([])
   const [searchInput, setSearchInput] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [hasSearched, setHasSearched] = useState<boolean>(false)
@@ -273,7 +270,6 @@ function App(): JSX.Element {
   const [filters, setFilters] = useState<Filters>({ category: '', minPrice: '', maxPrice: '', minRating: '', sortBy: 'relevance' })
   const latestRequestId = useRef<number>(0)
   const [expandedQuery, setExpandedQuery] = useState<string>('')
-  // const [ingredientMode, setIngredientMode] = useState<'include' | 'exclude'>('include');
   const [ingredientInputInclude, setIngredientInputInclude] = useState('');
   const [ingredientInputExclude, setIngredientInputExclude] = useState('');
 
@@ -463,10 +459,8 @@ function App(): JSX.Element {
   // Filter products by included/excluded ingredients
   const filteredProducts = products.filter(product => {
     const ingredients = (product.ingredients || '').toLowerCase();
-    // Exclude if any excluded ingredient is present
-    if (excludeIngredients.some(ing => ingredients.includes(ing))) return false;
-    // If includes are set, only show if all are present
-    if (includeIngredients.length > 0 && !includeIngredients.every(ing => ingredients.includes(ing))) return false;
+    if (ingredientInputExclude.trim() && ingredients.includes(ingredientInputExclude.trim())) return false;
+    if (ingredientInputInclude.trim() && !ingredients.includes(ingredientInputInclude.trim())) return false;
     return true;
   });
   const visibleProducts = filteredProducts.slice(0, visibleCount)
@@ -557,19 +551,19 @@ function App(): JSX.Element {
             RAG {useRag ? '(On)' : '(Off)'}
           </button>
           <div className="ingredient-filter-group">
-            <label style={{ color: '#3A6B4A' }}>Include Ingredients:</label>
+            <label style={{ color: '#3A6B4A' }}>Enter an Ingredient to Include:</label>
             <input
               type="text"
               className="ingredient-input"
-              placeholder="Add an ingredient to include"
+              placeholder="Enter an inclusion"
               value={ingredientInputInclude}
               onChange={e => setIngredientInputInclude(e.target.value)}
             />
-            <label style={{ color: '#3A6B4A' }}>Exclude Ingredients:</label>
+            <label style={{ color: '#3A6B4A' }}>Enter an Ingredient to Exclude:</label>
             <input
               type="text"
               className="ingredient-input"
-              placeholder="Add an ingredient to exclude"
+              placeholder="Enter an exclusion"
               value={ingredientInputExclude}
               onChange={e => setIngredientInputExclude(e.target.value)}
             />
